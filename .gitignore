@@ -5,5 +5,8 @@ dist/
 server/data/db.json
 server/data/uploads/
 server/*.traineddata
+english-vocabulary-master/
+server/src/seed/source/
+server/src/seed/words_merged.js
 .env
 .vite/
