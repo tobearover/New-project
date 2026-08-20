@@ -24,6 +24,9 @@ export default function Scan() {
   const [mockText, setMockText] = useState('');
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
+  const [duplicate, setDuplicate] = useState(null); // { message, previous, windowMinutes }
+  const [history, setHistory] = useState([]);
+  const [historyWindow, setHistoryWindow] = useState(30);
   const [error, setError] = useState('');
   const [syllabi, setSyllabi] = useState([]);
 
@@ -35,9 +38,30 @@ export default function Scan() {
 
   useEffect(() => {
     api.syllabi().then(setSyllabi).catch(() => {});
+    refreshHistory();
     return () => stopCamera();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const refreshHistory = useCallback(() => {
+    api
+      .recognitionHistory()
+      .then((h) => {
+        setHistory(h.items || []);
+        setHistoryWindow(h.windowMinutes || 30);
+      })
+      .catch(() => {});
+  }, []);
+
+  const clearHistory = async () => {
+    if (!confirm('确定清空识别历史吗？')) return;
+    try {
+      await api.recognitionHistoryClear();
+      setHistory([]);
+    } catch (err) {
+      alert(err.message);
+    }
+  };
 
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
@@ -92,13 +116,15 @@ export default function Scan() {
     setPreview(canvas.toDataURL('image/jpeg', 0.92));
   };
 
-  const submit = async () => {
+  const submit = async (force = false) => {
     setBusy(true);
     setError('');
     setResult(null);
+    setDuplicate(null);
     try {
       const form = new FormData();
       form.append('syllabus', syllabusId);
+      if (force) form.append('force', 'true');
       if (mode === 'text') {
         if (!mockText.trim()) throw new Error('请输入题目文本');
         form.append('mockText', mockText);
@@ -107,7 +133,12 @@ export default function Scan() {
         form.append('image', await canvasToBlob(lastCanvasRef.current, 'image/jpeg'), 'question.jpg');
       }
       const data = await api.recognize(form);
-      setResult(data);
+      if (data.duplicate) {
+        setDuplicate(data);
+      } else {
+        setResult(data);
+        refreshHistory();
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -143,6 +174,7 @@ export default function Scan() {
                 onClick={() => {
                   setMode(key);
                   setResult(null);
+                  setDuplicate(null);
                   if (key !== 'camera') stopCamera();
                 }}
                 className={`chip ring-1 px-3.5 py-1.5 transition ${
@@ -236,7 +268,7 @@ export default function Scan() {
             </div>
           )}
 
-          <button onClick={submit} disabled={busy} className="btn-primary mt-4 w-full py-3">
+          <button onClick={() => submit()} disabled={busy} className="btn-primary mt-4 w-full py-3">
             {busy ? '识别中，请稍候…' : '开始识别'}
           </button>
           {error && <p className="mt-3 text-sm text-red-500">{error}</p>}
@@ -252,8 +284,37 @@ export default function Scan() {
             <EmptyState
               icon="🧾"
               title="识别结果将显示在这里"
-              desc="识别完成后，单词会按高频 / 常考 / 重点 / 认知分组展示，并标注在生词本中的状态。"
+              desc="识别完成后，考纲内已收录的单词会按高频 / 常考 / 重点 / 认知分组展示，未收录词汇自动过滤。"
             />
+          )}
+
+          {duplicate && (
+            <div className="card border-l-4 border-l-amber-400 p-5">
+              <div className="flex items-start gap-3">
+                <span className="text-2xl">⚠️</span>
+                <div className="min-w-0 flex-1">
+                  <div className="font-semibold text-slate-900">已检测到重复识别</div>
+                  <p className="mt-1 text-sm text-slate-600">{duplicate.message}</p>
+                  {duplicate.previous && (
+                    <p className="mt-1 text-xs text-slate-400">
+                      上次识别：{duplicate.previous.matchedCount} 个单词
+                      {duplicate.previous.matchedWords.length > 0
+                        ? `（${duplicate.previous.matchedWords.slice(0, 8).join('、')}${duplicate.previous.matchedWords.length > 8 ? '…' : ''}）`
+                        : ''}
+                      ，引擎：{duplicate.previous.engine === 'tesseract' ? 'Tesseract OCR' : duplicate.previous.engine === 'demo' ? '演示文本' : 'OCR'}
+                    </p>
+                  )}
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button onClick={() => submit(true)} disabled={busy} className="btn-primary">
+                      仍要重新识别
+                    </button>
+                    <button onClick={() => setDuplicate(null)} className="btn-secondary">
+                      知道了
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
           )}
 
           {result && (
@@ -272,7 +333,7 @@ export default function Scan() {
                 <div className="text-right text-xs text-slate-500">
                   匹配 {result.stats.matchedWords} 词 · {result.stats.matchedPhrases} 词组
                   <br />
-                  未收录 {result.stats.unknownWords} 词
+                  未收录词汇已自动过滤
                 </div>
               </div>
 
@@ -332,25 +393,59 @@ export default function Scan() {
                 </div>
               )}
 
-              {result.unknowns.length > 0 && (
-                <div className="card p-4">
-                  <div className="text-sm font-semibold text-slate-800">
-                    未收录 / 超出考纲（{result.unknowns.length}）
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {result.unknowns.map((u) => (
-                      <span key={u.token} className="chip bg-slate-100 text-slate-600 ring-1 ring-slate-200">
-                        {u.token}
-                        {u.count > 1 ? ` ×${u.count}` : ''}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
             </>
           )}
         </div>
       </div>
+
+      <section className="card overflow-hidden">
+        <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/60 px-4 py-3">
+          <div className="text-sm font-semibold text-slate-800">
+            🕘 识别历史（{historyWindow} 分钟窗口内自动去重）
+          </div>
+          {history.length > 0 && (
+            <button onClick={clearHistory} className="text-xs text-slate-400 hover:text-red-500">
+              清空历史
+            </button>
+          )}
+        </div>
+        {history.length === 0 ? (
+          <p className="px-4 py-6 text-center text-sm text-slate-400">暂无识别记录</p>
+        ) : (
+          <div className="max-h-80 divide-y divide-slate-100 overflow-y-auto">
+            {history.map((h) => (
+              <div key={h.id} className="flex items-center gap-3 px-4 py-3">
+                <span className="text-lg">{h.engine === 'tesseract' ? '🖼️' : '⌨️'}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                    <span className="font-medium text-slate-700">
+                      {new Date(h.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                    <span className="chip bg-brand-50 text-brand-600 ring-1 ring-brand-100">
+                      {(h.syllabus || 'all').toUpperCase()}
+                    </span>
+                    <span>匹配 {h.matchedCount} 词</span>
+                    {h.engine === 'demo' && <span>演示文本</span>}
+                  </div>
+                  <div className="mt-1 truncate text-sm text-slate-600">{h.rawText}</div>
+                  {h.matchedWords.length > 0 && (
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {h.matchedWords.slice(0, 10).map((w) => (
+                        <span key={w} className="chip bg-slate-100 text-slate-600">
+                          {w}
+                        </span>
+                      ))}
+                      {h.matchedWords.length > 10 && (
+                        <span className="chip bg-slate-100 text-slate-400">+{h.matchedWords.length - 10}</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   );
 }

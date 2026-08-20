@@ -24,6 +24,8 @@ export const api = {
   words: (params = {}) => request(`/words?${new URLSearchParams(params)}`),
   word: (id) => request(`/words/${encodeURIComponent(id)}`),
   recognize: (formData) => request('/recognition', { method: 'POST', body: formData }),
+  recognitionHistory: (limit = 20) => request(`/recognition/history?limit=${limit}`),
+  recognitionHistoryClear: () => request('/recognition/history', { method: 'DELETE' }),
   wordbook: (params = {}) => request(`/wordbook?${new URLSearchParams(params)}`),
   wordbookStats: () => request('/wordbook/stats'),
   wordbookAdd: (wordId, status = 'new') =>

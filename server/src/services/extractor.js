@@ -94,21 +94,6 @@ function extractAndMatch({ text, words, phrases, syllabusId, wordbook }) {
   const tokens = tokenize(text);
   const wordMap = buildWordMap(words, syllabusId);
   const matched = matchWords(tokens, wordMap, wordbook || {});
-  const matchedIds = new Set(
-    Object.values(matched.groups).flat().map((w) => w.id)
-  );
-  const unknownSet = new Set();
-  for (const { token } of tokens) {
-    if (!wordMap.has(token) && !matchedIds.has(token)) unknownSet.add(token);
-  }
-
-  const unknown = [...unknownSet]
-    .map((token) => {
-      const t = tokens.find((x) => x.token === token);
-      return { token, count: t ? t.count : 1 };
-    })
-    .sort((a, b) => b.count - a.count);
-
   const phraseHits = phraseMatches(text, phrases || []);
   const totalMatched = Object.values(matched.groups).reduce((sum, arr) => sum + arr.length, 0);
 
@@ -117,12 +102,10 @@ function extractAndMatch({ text, words, phrases, syllabusId, wordbook }) {
     phrases: phraseHits,
     groups: matched.groups,
     orderedGroups: matched.order,
-    unknowns: unknown,
     stats: {
       totalTokens: tokens.length,
       matchedWords: totalMatched,
-      matchedPhrases: phraseHits.length,
-      unknownWords: unknown.length
+      matchedPhrases: phraseHits.length
     }
   };
 }

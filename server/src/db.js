@@ -28,7 +28,8 @@ function defaultDb() {
     words: buildSeedWords(),
     phrases,
     wordbook: {}, // wordId -> { status, addedAt, updatedAt, reviewCount, intervalIndex, nextReview, lastReviewed }
-    quizHistory: []
+    quizHistory: [],
+    recognitionHistory: [] // 识别历史：{ id, key, syllabus, engine, createdAt, matchedCount, matchedWords, rawText }
   };
 }
 
@@ -41,7 +42,8 @@ function save() {
   const state = {
     meta: { ...db.meta, wordsCount: db.words.length },
     wordbook: db.wordbook,
-    quizHistory: db.quizHistory
+    quizHistory: db.quizHistory,
+    recognitionHistory: db.recognitionHistory
   };
   const tmp = DB_PATH + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(state, null, 2), 'utf8');
@@ -73,6 +75,13 @@ function load() {
   };
   db.wordbook = raw.wordbook || {};
   db.quizHistory = Array.isArray(raw.quizHistory) ? raw.quizHistory : [];
+  // 识别历史仅保留近 7 天、最多 100 条（路由层另有时间窗口清理）
+  const sevenDaysAgo = Date.now() - 7 * 24 * 3600 * 1000;
+  db.recognitionHistory = Array.isArray(raw.recognitionHistory)
+    ? raw.recognitionHistory
+        .filter((r) => new Date(r.createdAt).getTime() >= sevenDaysAgo)
+        .slice(-100)
+    : [];
   save(); // 立即落盘为 v2 状态文件（不含大词库）
   return db;
 }
