@@ -223,7 +223,7 @@ function frequencyLabel(frequency) {
 function parseMeanings(paraphrase, freqLabel) {
   if (!paraphrase || typeof paraphrase !== 'string') return [];
   return paraphrase
-    .split(/[，,；;]/)
+    .split(/[，,；;\r\n]+/)
     .map((seg) => seg.trim())
     .filter(Boolean)
     .map((seg) => {

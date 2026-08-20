@@ -49,10 +49,18 @@
 各考纲覆盖：gre 7,180 / toefl 6,922 / kaoyan 6,668 / ielts 6,331 / tem8 5,552 / cet4 3,472 /
 gaokao 2,203 / cet6 2,115 / tem4 1,375 / gmat 1,309 / bec 745。
 
+### 已接入应用
+
+应用启动时由 `server/src/seed/mergedAdapter.js` 将 `words_merged.js` 自动转换为运行时词库结构
+（`phoneticUK/US`、`meanings` 字符串数组、`exams`、`level` 频率映射），与现有 `words.js`
+合并后共 **24,327 词**，考纲选择、单词列表/详情、拍照识别匹配、生词本、测验全部基于该词库。
+`db.json` 仅持久化用户状态（生词本/测验记录），词库每次启动从种子重建。
+
 ## 已知边界（后续迭代方向）
 
 - 种子词库为高质量示例数据（约 400 词），正式词库可按考纲版本批量导入（词条结构见 `server/src/seed/words.js`）
-- `words_merged.js` 使用新结构（`phonetic_uk`、`meanings` 对象、`syllabus` 数组），与运行时词库结构不同，接入应用前需适配层
+- 合并词库中约 4,800 个六级高频词源数据无中文释义（待 AI/人工补全）；无频率数据的词条默认归入「重点」级别
+- 中考（zhongkao）暂无词书数据，考纲页面显示 0 词；真题模拟题仅覆盖精编词条（约 40 个含真题例句的词）
 - 当前为单用户本地存储（无登录体系）；正式上线需接入用户系统与 MongoDB/MySQL
 - OCR 使用本地 Tesseract，首次识别会下载英文语言包；生产环境可替换为百度/腾讯/Google OCR API（`server/src/services/ocr.js` 是唯一接入点）
 - 测验答案目前由客户端校验；正式上线应在服务端出题与判分，避免被前端篡改

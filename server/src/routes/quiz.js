@@ -87,7 +87,10 @@ router.get('/', (req, res) => {
     return res.status(400).json({ error: 'type 无效' });
   }
 
-  let pool = db.words.filter((w) => w.exams.includes(syllabus));
+  // 出题池只保留有中文释义的词，避免生成空释义题目
+  let pool = db.words.filter(
+    (w) => w.exams.includes(syllabus) && w.meanings && w.meanings.length > 0
+  );
   if (type === 'exam') pool = pool.filter((w) => w.realExam && w.realExam.length);
   if (pool.length < 4) return res.status(404).json({ error: '该考纲词库不足，无法出题' });
 
