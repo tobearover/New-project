@@ -43,8 +43,17 @@ function buildQuestion(type, word, pool) {
 
   if (type === 'exam' && word.realExam && word.realExam.length) {
     const { sentence } = word.realExam[0];
+    // 真题例句中的单词可能是词形变化（reduced/driving），按最长优先匹配替换为空格
+    const variants = [
+      `${word.word}ing`,
+      `${word.word}ed`,
+      `${word.word}es`,
+      `${word.word}s`,
+      `${word.word}d`,
+      word.word
+    ];
     const blanked = sentence.replace(
-      new RegExp(`\\b${word.word}\\b`, 'i'),
+      new RegExp(`\\b(?:${variants.join('|')})\\b`, 'i'),
       '______'
     );
     const distractors = pickDistractors(pool, word, 3);

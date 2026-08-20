@@ -8,12 +8,15 @@
  *      未关联任何允许考纲词书的单词整词丢弃。
  * 2. dict-master（有道背单词词书 dump，book/*.zip，每个 zip 一个 NDJSON 词书）
  *    - 仅处理映射到允许考纲的词书（CET4/CET6/KaoYan/IELTS/TOEFL/GRE/GMAT/BEC/
- *      Level4/Level8/GaoZhong），SAT/初中/小学等词书整本跳过。
+ *      Level4/Level8/GaoZhong/ChuZhong），SAT/小学等词书不产出词条，
+ *      但仍作为释义回填词典使用。
  * 3. cet6-vocabulary（六级真题高频词 CSV + 简洁版 MD 词义表）
- *    - 全量标记为 cet6 考纲，过滤掉含 filter_reason 的低价值词条。
+ *    - 全量标记为 cet6 考纲，过滤掉含 filter_reason 的低价值词条；
+ *      缺失的中文释义从全量释义词典（english-vocabulary + dict-master 所有词书）回填。
  *
  * 运行：node scripts/mergeVocabulary.js  或  npm run merge:vocab
  * 输出：server/src/seed/words_merged.js（不覆盖 words.js）
+ *       server/src/seed/words_merged_enrich.js（精编词条回流数据）
  */
 
 const fs = require('fs');
@@ -40,6 +43,7 @@ const REQUIRED_FILES = [
 ];
 
 const OUTPUT_FILE = path.join(REPO_ROOT, 'server', 'src', 'seed', 'words_merged.js');
+const ENRICH_FILE = path.join(REPO_ROOT, 'server', 'src', 'seed', 'words_merged_enrich.js');
 const EXISTING_SEED_FILE = path.join(REPO_ROOT, 'server', 'src', 'seed', 'words.js');
 
 // ---------------------------------------------------------------------------
@@ -191,6 +195,72 @@ function parseSimpleMdMeanings(mdPath) {
   return map;
 }
 
+/**
+ * 从 CSV 行推导规范词头：源数据的 word/lemma 存在截断词干（如 focu/caus），
+ * raw_forms 含完整词形。采用 BFS 逐级剥离常见词尾/前缀（ing/ed/er/est/ness/tion/
+ * un-/non- 等，含双写辅音还原），并用全量释义词典反查，找到可识别的规范词形
+ * （focu → focus、broader → broad、organisational → organ、irritat → irritate）。
+ */
+function resolveHeadword(row, meaningDict, meaningByWord) {
+  const inDict = (v) =>
+    v.length >= 2 && (meaningByWord.has(v) || (meaningDict && meaningDict.has(v)));
+
+  const SUFFIXES = [
+    'isation', 'ation', 'ness', 'tion', 'sion', 'ment', 'ing', 'less',
+    'able', 'ible', 'ful', 'ous', 'ize', 'ise', 'ist', 'ism', 'ity',
+    'ier', 'iest', 'est', 'ied', 'ies', 'ed', 'es', 'er', 'ly', 's',
+    'hood', 'ship', 'en'
+  ];
+  const PREFIXES = ['un', 'non', 'in', 'im', 'ir', 'il', 'dis', 'mis', 'over', 'under'];
+
+  /** 生成一个词形的候选变形（去一个后缀/前缀，含特殊还原规则） */
+  function neighbors(v) {
+    const out = [];
+    for (const suf of SUFFIXES) {
+      if (v.length > suf.length + 1 && v.endsWith(suf)) {
+        let base = v.slice(0, -suf.length);
+        if (suf === 'ier' || suf === 'ies' || suf === 'ied') base += 'y'; // healthier -> healthy
+        if (suf === 'ing') out.push(v.slice(0, -3) + 'e'); // sharing -> share
+        out.push(base);
+      }
+    }
+    const doubled = v.match(/^(.+?)([a-z])\2(er|est)$/); // broader -> broad
+    if (doubled) out.push(doubled[1] + doubled[2]);
+    for (const pre of PREFIXES) {
+      if (v.length > pre.length + 2 && v.startsWith(pre)) out.push(v.slice(pre.length));
+    }
+    return out;
+  }
+
+  const candidates = [
+    row.word,
+    row.lemma,
+    ...(row.raw_forms || '').split(',')
+  ]
+    .map((s) => String(s).trim().toLowerCase())
+    .filter((s) => s.length >= 2);
+
+  for (const c of candidates) {
+    // BFS：每层剥离一个词缀，最多 3 层
+    let queue = [c];
+    const visited = new Set([c]);
+    for (let depth = 0; depth < 3 && queue.length; depth++) {
+      const next = [];
+      for (const v of queue) {
+        if (inDict(v)) return v;
+        for (const n of neighbors(v)) {
+          if (!visited.has(n) && n.length >= 2) {
+            visited.add(n);
+            next.push(n);
+          }
+        }
+      }
+      queue = next;
+    }
+  }
+  return candidates[0]; // 找不到可识别词形，退回原始值（保留原样，便于后续人工处理）
+}
+
 /** 词性标记列表（用于从释义段中提取词性） */
 const POS_TOKENS = [
   'vt.', 'vi.', 'v.', 'n.', 'adj.', 'adv.', 'prep.', 'conj.',
@@ -253,7 +323,8 @@ const SYLLABUS_RULES = [
   { id: 'tem4', keywords: ['英语专业四级', '专业四级', '专四', 'TEM4', 'TEM-4'] },
   { id: 'tem8', keywords: ['英语专业八级', '专业八级', '专八', 'TEM8', 'TEM-8'] },
   { id: 'bec', keywords: ['商务英语', 'BEC'] },
-  { id: 'gaokao', keywords: ['高中英语', '高考'] }
+  { id: 'gaokao', keywords: ['高中英语', '高考'] },
+  { id: 'zhongkao', keywords: ['中考', '初中英语', '初中', 'CHUZHONG', 'ChuZhong'] }
 ];
 
 /** 词书名称 -> 命中的考纲标识列表（可能命中多个） */
@@ -288,7 +359,8 @@ function dictBookToSyllabus(bookId) {
   if (up.startsWith('LEVEL4')) return 'tem4';
   if (up.startsWith('LEVEL8')) return 'tem8';
   if (up.includes('GAOZHONG')) return 'gaokao'; // 有道/人教版/北师大版高中英语
-  return null; // SAT、初中、小学、外研社初中等非允许考纲
+  if (up.includes('CHUZHONG')) return 'zhongkao'; // 有道/人教版/外研社初中英语（中考）
+  return null; // SAT、小学等非允许考纲
 }
 
 // ---------------------------------------------------------------------------
@@ -332,6 +404,7 @@ function buildEntry(record, examples, syllabi) {
     examTips: record.examTips || '',
     collocations: record.collocations || [],
     phrases: record.phrases || [],
+    realExam: record.realExam || [],
     examples,
     syllabus: syllabi
   };
@@ -365,6 +438,14 @@ function loadEnglishVocabulary(sourceDir) {
 
   const entries = [];
   let filteredOut = 0;
+  // 全量释义词典：无论是否通过考纲筛选，所有词条的 paraphrase 都作为释义回填来源
+  const meaningDict = new Map();
+  for (const record of vocabulary) {
+    const key = String(record.spelling).toLowerCase();
+    if (!key || meaningDict.has(key)) continue;
+    const meanings = parseMeanings(record.paraphrase, frequencyLabel(record.frequency));
+    if (meanings.length) meaningDict.set(key, meanings);
+  }
   for (const record of vocabulary) {
     // 强制性考纲筛选：先于任何字段映射
     const syllabi = syllabusByWord.get(record.wordid) || [];
@@ -390,7 +471,13 @@ function loadEnglishVocabulary(sourceDir) {
       )
     );
   }
-  return { name: 'english-vocabulary', total: vocabulary.length, filteredOut, entries };
+  return {
+    name: 'english-vocabulary',
+    total: vocabulary.length,
+    filteredOut,
+    entries,
+    extra: { meaningDict }
+  };
 }
 
 /** 数据源二：dict-master（有道词书 dump） */
@@ -408,6 +495,8 @@ function loadDictMaster(dictDir) {
   let bookCount = 0;
   let skippedBooks = 0;
   let totalRecords = 0;
+  // 全量释义词典：所有词书（含被跳过的 SAT/初中/小学）都作为释义回填来源
+  const dictMeaningDict = new Map();
   // word(小写) -> { data, syllabi:Set }，跨词书累积考纲标签，保证
   // 同一单词出现在 CET4 + KaoYan 等多本词书时 syllabus 为并集
   const wordData = new Map();
@@ -416,10 +505,6 @@ function loadDictMaster(dictDir) {
     const zipPath = path.join(dictDir, zipName);
     const bookIdGuess = zipName.replace(/^\d+_/, '').replace(/\.zip$/i, '');
     const syllabus = dictBookToSyllabus(bookIdGuess);
-    if (!syllabus) {
-      skippedBooks += 1;
-      continue; // 非允许考纲词书，整本跳过
-    }
 
     let content;
     try {
@@ -430,8 +515,12 @@ function loadDictMaster(dictDir) {
       continue;
     }
     const { records } = parseJsonRecords(content, zipName);
-    bookCount += 1;
-    totalRecords += records.length;
+    if (!syllabus) {
+      skippedBooks += 1; // 非允许考纲词书：仅贡献释义词典，不产出词条
+    } else {
+      bookCount += 1;
+      totalRecords += records.length;
+    }
 
     for (const record of records) {
       const w = record.content && record.content.word;
@@ -446,9 +535,24 @@ function loadDictMaster(dictDir) {
         .filter((t) => t.tranCn)
         .map((t) => ({ pos: t.pos || '', definition: t.tranCn.trim(), frequency: '' }));
 
+      // 全量释义词典（先到先得）
+      if (!dictMeaningDict.has(key) && meanings.length) {
+        dictMeaningDict.set(key, meanings);
+      }
+
+      if (!syllabus) continue;
+
       const examples = ((inner.sentence && inner.sentence.sentences) || [])
         .slice(0, 3)
         .map((s) => ({ en: s.sContent || '', cn: s.sCn || '' }));
+
+      const realExam = ((inner.realExamSentence && inner.realExamSentence.sentences) || [])
+        .slice(0, 3)
+        .map((s) => {
+          const info = s.sourceInfo || {};
+          const source = [info.level, info.year, info.type, info.paper].filter(Boolean).join(' ');
+          return { sentence: s.sContent || '', source: source || '真题' };
+        });
 
       if (!wordData.has(key)) {
         const synonyms = [];
@@ -479,7 +583,8 @@ function loadDictMaster(dictDir) {
             synonyms,
             antonyms,
             derivatives,
-            phrases
+            phrases,
+            realExam
           },
           examples,
           syllabi: new Set()
@@ -497,13 +602,17 @@ function loadDictMaster(dictDir) {
     name: 'dict-master',
     total: totalRecords,
     filteredOut: 0,
-    extra: { bookCount, skippedBooks },
+    extra: { bookCount, skippedBooks, meaningDict: dictMeaningDict },
     entries
   };
 }
 
-/** 数据源三：cet6-vocabulary（六级真题高频词 CSV + 简洁版 MD 词义） */
-function loadCet6Vocabulary(cet6Dir) {
+/**
+ * 数据源三：cet6-vocabulary（六级真题高频词 CSV + 简洁版 MD 词义）
+ * meaningDict：全量释义词典（english-vocabulary + dict-master 合并），
+ * 用于补全 CSV 中源数据缺失的中文释义。
+ */
+function loadCet6Vocabulary(cet6Dir, meaningDict) {
   const csvPath = path.join(cet6Dir, 'cet6_high_frequency_words.csv');
   if (!fs.existsSync(csvPath)) {
     console.warn(`[警告] 未找到 cet6-vocabulary 数据源：${csvPath}，已跳过该数据源`);
@@ -527,27 +636,52 @@ function loadCet6Vocabulary(cet6Dir) {
 
   const entries = [];
   let withMeaning = 0;
+  let backfilled = 0;
+  let junkExcluded = 0;
   for (const row of rows) {
-    const word = row.word;
-    const mdMeaning = meaningByWord.get(String(word).toLowerCase());
-    const meanings = mdMeaning
-      ? mdMeaning
-          .split(/[；;]/)
-          .map((d) => d.trim())
-          .filter(Boolean)
-          .map((d) => ({ pos: row.part_of_speech || '', definition: d, frequency: '' }))
-      : [];
-    if (meanings.length) withMeaning += 1;
+    // 源数据存在截断词干，先反查词典推导规范词头
+    const word = resolveHeadword(row, meaningDict, meaningByWord);
+    const key = String(word).toLowerCase();
+    const mdMeaning = meaningByWord.get(key);
+    const dictMeanings = meaningDict ? meaningDict.get(key) : undefined;
+    let meanings;
+    if (mdMeaning) {
+      meanings = mdMeaning
+        .split(/[；;]/)
+        .map((d) => d.trim())
+        .filter(Boolean)
+        .map((d) => ({ pos: row.part_of_speech || '', definition: d, frequency: '' }));
+    } else if (dictMeanings && dictMeanings.length) {
+      meanings = dictMeanings.map((m) => ({
+        pos: m.pos || row.part_of_speech || '',
+        definition: m.definition,
+        frequency: m.frequency || ''
+      }));
+      backfilled += 1;
+    } else {
+      meanings = [];
+    }
+    if (!meanings.length) {
+      // 无法从任何词典解析出释义的碎片词干/专有名词（txt、ffi、beethoven 等），
+      // 为保证词库质量直接剔除，不进入 words_merged.js
+      junkExcluded += 1;
+      continue;
+    }
+    withMeaning += 1;
 
     const examples = row.example_sentence_from_exam
       ? [{ en: row.example_sentence_from_exam.trim(), cn: '' }]
+      : [];
+    const realExam = row.example_sentence_from_exam
+      ? [{ sentence: row.example_sentence_from_exam.trim(), source: '2020-2025 六级真题' }]
       : [];
 
     entries.push(
       buildEntry(
         {
           word,
-          meanings
+          meanings,
+          realExam
         },
         examples,
         ['cet6']
@@ -559,7 +693,7 @@ function loadCet6Vocabulary(cet6Dir) {
     name: 'cet6-vocabulary',
     total: rows.length,
     filteredOut: 0,
-    extra: { withMeaning },
+    extra: { withMeaning, backfilled, junkExcluded },
     entries
   };
 }
@@ -579,9 +713,66 @@ try {
 
 const seen = new Set(existingWords.map((w) => String(w.word).toLowerCase()));
 const merged = [];
+const mergedByKey = new Map(); // word(小写) -> 合并数组中的词条，用于跨源考纲标签合并
 const sourceReports = [];
+// 精编词条（words.js）对应的开源数据：合并时被去重跳过的词条在此截获，用于运行时回流
+const enrichSet = new Set(existingWords.map((w) => String(w.word).toLowerCase()));
+const enrichMap = new Map();
 
-function ingest(source) {
+/** 合并两个同词回流数据：例句/同反义/派生/搭配/短语/真题按内容去重取并集 */
+function mergeEnrich(cur, entry) {
+  const out = {
+    ...cur,
+    examples: [...(cur.examples || [])],
+    synonyms: [...(cur.synonyms || [])],
+    antonyms: [...(cur.antonyms || [])],
+    derivatives: [...(cur.derivatives || [])],
+    collocations: [...(cur.collocations || [])],
+    phrases: [...(cur.phrases || [])],
+    realExam: [...(cur.realExam || [])]
+  };
+  if (!out.meanings || out.meanings.length === 0) out.meanings = entry.meanings || [];
+
+  const exKeys = new Set(out.examples.map((e) => (e.en || '').toLowerCase()));
+  for (const e of entry.examples || []) {
+    if (out.examples.length >= 8) break;
+    const k = (e.en || '').toLowerCase();
+    if (k && !exKeys.has(k)) {
+      exKeys.add(k);
+      out.examples.push(e);
+    }
+  }
+
+  const pushUnion = (field, items, cap, keyFn) => {
+    const seenVals = new Set(out[field].map((x) => (keyFn ? keyFn(x) : x)));
+    for (const x of items || []) {
+      if (out[field].length >= cap) break;
+      const k = keyFn ? keyFn(x) : x;
+      if (k && !seenVals.has(k)) {
+        seenVals.add(k);
+        out[field].push(x);
+      }
+    }
+  };
+  pushUnion('synonyms', entry.synonyms, 10);
+  pushUnion('antonyms', entry.antonyms, 6);
+  pushUnion('derivatives', entry.derivatives, 8);
+  pushUnion('collocations', entry.collocations, 12);
+  pushUnion('phrases', entry.phrases, 12, (p) => (typeof p === 'string' ? p : p.phrase));
+
+  const examKeys = new Set(out.realExam.map((r) => (r.sentence || '').toLowerCase()));
+  for (const r of entry.realExam || []) {
+    if (out.realExam.length >= 4) break;
+    const k = (r.sentence || '').toLowerCase();
+    if (k && !examKeys.has(k)) {
+      examKeys.add(k);
+      out.realExam.push(r);
+    }
+  }
+  return out;
+}
+
+function ingest(source, enrichCapture = false) {
   const report = {
     name: source.name,
     total: source.total,
@@ -601,10 +792,23 @@ function ingest(source) {
     }
     if (seen.has(key)) {
       report.skipped += 1;
+      // 跨数据源考纲标签合并：该词若已被更早的数据源收录，
+      // 仍把本次来源的考纲并入已有词条（如 study：kaoyan/ielts + zhongkao）
+      const existing = mergedByKey.get(key);
+      if (existing && entry.syllabus && entry.syllabus.length) {
+        for (const s of entry.syllabus) {
+          if (!existing.syllabus.includes(s)) existing.syllabus.push(s);
+        }
+      }
+      if (enrichCapture && enrichSet.has(key)) {
+        const cur = enrichMap.get(key);
+        enrichMap.set(key, cur ? mergeEnrich(cur, entry) : entry);
+      }
       continue;
     }
     seen.add(key);
     merged.push(entry);
+    mergedByKey.set(key, entry);
     report.added += 1;
     if (entry.examples.length > 0) report.withExamples += 1;
     if (entry.syllabus.length > 0) report.withSyllabus += 1;
@@ -614,13 +818,20 @@ function ingest(source) {
 
 console.log('正在加载 english-vocabulary…');
 const evDir = resolveEnglishVocabDir();
-ingest(loadEnglishVocabulary(evDir));
+const evSource = loadEnglishVocabulary(evDir);
+ingest(evSource, true);
 
 console.log('正在加载 dict-master（有道词书）…');
-ingest(loadDictMaster(DICT_DIR));
+const dictSource = loadDictMaster(DICT_DIR);
+ingest(dictSource, true);
 
 console.log('正在加载 cet6-vocabulary（六级真题高频词）…');
-ingest(loadCet6Vocabulary(CET6_DIR));
+// 合并全量释义词典：dict 先入、english-vocabulary 覆盖（后者含频率星级）
+const meaningDict = new Map([
+  ...((dictSource.extra && dictSource.extra.meaningDict) || []),
+  ...((evSource.extra && evSource.extra.meaningDict) || [])
+]);
+ingest(loadCet6Vocabulary(CET6_DIR, meaningDict), true);
 
 // 写出 words_merged.js（每个词条一行，便于审查）
 console.log('正在写入输出文件…');
@@ -641,6 +852,23 @@ try {
   process.exit(1);
 }
 
+// 写出精编词条回流数据（words_merged_enrich.js）
+try {
+  const enrichLines = [...enrichMap.values()].map((e) => '  ' + JSON.stringify(e));
+  const enrichContent =
+    '// 本文件由 scripts/mergeVocabulary.js 自动生成，请勿手工修改。\n' +
+    '// 内容：与 words.js 精编词条重复而被去重跳过的开源词条数据，供运行时回流展示。\n' +
+    '// 重新生成：npm run merge:vocab\n' +
+    'module.exports = [\n' +
+    enrichLines.join(',\n') +
+    '\n];\n';
+  fs.writeFileSync(ENRICH_FILE, enrichContent, 'utf8');
+} catch (err) {
+  console.error(`[错误] 写入回流数据文件失败：${ENRICH_FILE}`);
+  console.error(`       原因：${err.message}`);
+  process.exit(1);
+}
+
 // ---------------------------------------------------------------------------
 // 5. 统计信息
 // ---------------------------------------------------------------------------
@@ -657,10 +885,13 @@ for (const r of sourceReports) {
   console.log(`  词条总数            ：${r.total}`);
   if (r.filteredOut) console.log(`  被考纲筛选丢弃词条数：${r.filteredOut}`);
   if (r.withMeaning != null) console.log(`  其中含中文释义词条数：${r.withMeaning}`);
+  if (r.backfilled != null) console.log(`  其中释义回填词条数  ：${r.backfilled}`);
+  if (r.junkExcluded != null) console.log(`  无效词形剔除词条数  ：${r.junkExcluded}`);
   console.log(`  重复跳过词条数      ：${r.skipped}`);
   console.log(`  成功新增词条数      ：${r.added}`);
 }
 console.log('--------------------------------');
+console.log(`精编词条回流数据条数  ：${enrichMap.size}`);
 console.log(`合并后总词条数        ：${merged.length}`);
 console.log(`其中包含例句的单词数  ：${totalWithExamples}`);
 console.log(`其中包含考纲标签的单词数：${totalWithSyllabus}`);

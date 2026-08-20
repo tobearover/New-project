@@ -14,6 +14,7 @@
  */
 
 const mergedWords = require('./words_merged.js');
+const enrichWords = require('./words_merged_enrich.js');
 
 /** 频率星级 -> 运行时重要程度级别 */
 const FREQ_TO_LEVEL = {
@@ -57,7 +58,11 @@ function toRuntime(m) {
     derivatives: m.derivatives || [],
     collocations,
     examPoint: m.examTips || '',
-    realExam: [],
+    realExam: (m.realExam || []).map((r) => ({
+      source: r.source || '',
+      sentence: r.sentence || '',
+      note: ''
+    })),
     memoryTip: ''
   };
 }
@@ -75,4 +80,62 @@ function buildMergedRuntimeWords(existingWords) {
   return added;
 }
 
-module.exports = { toRuntime, buildMergedRuntimeWords, mergedCount: mergedWords.length };
+/**
+ * 数据回流：将 words_merged_enrich.js 中与精编词条重复而跳过的开源数据
+ * （例句/同反义词/派生词/搭配/真题例句）并回精编词条，提升展示丰富度。
+ */
+function enrichCuratedWords(curated) {
+  const enrichMap = new Map(enrichWords.map((m) => [String(m.word).toLowerCase(), m]));
+  return curated.map((w) => {
+    const m = enrichMap.get(String(w.word).toLowerCase());
+    if (!m) return w;
+
+    const out = {
+      ...w,
+      examples: [...(w.examples || [])],
+      synonyms: [...(w.synonyms || [])],
+      antonyms: [...(w.antonyms || [])],
+      derivatives: [...(w.derivatives || [])],
+      collocations: [...(w.collocations || [])]
+    };
+
+    const addUniq = (arr, items, cap, keyFn) => {
+      const set = new Set(arr.map((x) => (keyFn ? keyFn(x) : x)));
+      for (const x of items || []) {
+        if (arr.length >= cap) break;
+        const k = keyFn ? keyFn(x) : x;
+        if (k && !set.has(k)) {
+          set.add(k);
+          arr.push(x);
+        }
+      }
+    };
+
+    addUniq(out.examples, m.examples, 8, (e) => (e.en || '').toLowerCase());
+    addUniq(out.synonyms, m.synonyms, 10);
+    addUniq(out.antonyms, m.antonyms, 6);
+    addUniq(out.derivatives, m.derivatives, 8);
+    const phraseStrings = (m.phrases || []).map((p) =>
+      typeof p === 'string' ? p : p.phrase + (p.meaning ? ` ${p.meaning}` : '')
+    );
+    addUniq(out.collocations, [...(m.collocations || []), ...phraseStrings], 12);
+
+    // 真题例句：精编词条缺失时才补入
+    if ((!w.realExam || w.realExam.length === 0) && m.realExam && m.realExam.length) {
+      out.realExam = m.realExam.slice(0, 3).map((r) => ({
+        source: r.source || '',
+        sentence: r.sentence || '',
+        note: ''
+      }));
+    }
+    return out;
+  });
+}
+
+module.exports = {
+  toRuntime,
+  buildMergedRuntimeWords,
+  enrichCuratedWords,
+  mergedCount: mergedWords.length,
+  enrichCount: enrichWords.length
+};

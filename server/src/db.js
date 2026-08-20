@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { syllabi } = require('./seed/syllabi');
 const { words, phrases } = require('./seed/words');
-const { buildMergedRuntimeWords } = require('./seed/mergedAdapter');
+const { buildMergedRuntimeWords, enrichCuratedWords } = require('./seed/mergedAdapter');
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
@@ -14,7 +14,9 @@ let db = null;
 
 /** 完整词库 = 现有 words.js（400 个精编词条）+ 开源词库合并新增（约 2.4 万） */
 function buildSeedWords() {
-  return [...words, ...buildMergedRuntimeWords(words)];
+  // 精编词条先经开源数据回流富化（例句/同反义/搭配/真题），再与合并词条拼接
+  const enriched = enrichCuratedWords(words);
+  return [...enriched, ...buildMergedRuntimeWords(enriched)];
 }
 
 function defaultDb() {

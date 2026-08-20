@@ -10,5 +10,6 @@ dict-master/
 cet6-vocabulary-main/
 server/src/seed/source/
 server/src/seed/words_merged.js
+server/src/seed/words_merged_enrich.js
 .env
 .vite/
