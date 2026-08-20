@@ -6,6 +6,8 @@ server/data/db.json
 server/data/uploads/
 server/*.traineddata
 english-vocabulary-master/
+dict-master/
+cet6-vocabulary-main/
 server/src/seed/source/
 server/src/seed/words_merged.js
 .env

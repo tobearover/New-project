@@ -30,16 +30,24 @@
 | 智能考试与记忆 | ✅ 四种测验 + 艾宾浩斯间隔重复（1/2/4/7/15/30 天） |
 | 多平台自适应 | ✅ 响应式布局（手机底部导航/桌面顶栏）+ PWA（manifest + Service Worker） |
 
-## 开源词库合并（english-vocabulary）
+## 多数据源词库合并
 
-`npm run merge:vocab` 可将开源词库 [english-vocabulary](https://github.com/zhenghaoyang24/english-vocabulary)
-（10.4 万词 / 14.2 万例句）合并为 `server/src/seed/words_merged.js`：
+`npm run merge:vocab` 将三个开源词库统一合并为 `server/src/seed/words_merged.js`：
 
-- 强制考纲筛选：仅保留关联到 cet4 / cet6 / kaoyan / ielts / toefl / gre / gmat / tem4 / tem8 / bec / gaokao
-  这 11 个考纲词书的单词，其余整词丢弃（中英文关键词模糊匹配，如「四级」/「CET4」）
-- 词性提取、频率分级（★★★/★★/★/认知）、例句按热度取前 3、考纲标签合并
-- 与现有 `words.js` 按 word 去重，不覆盖原文件；数据源目录可用 `SOURCE_DIR` 环境变量指定
-- 当前数据源仅含四级/考研/雅思/托福四类词书，合并后约 7,790 词，其中 5,450 词跨多个考纲
+1. **english-vocabulary**（[GitHub](https://github.com/zhenghaoyang24/english-vocabulary)，10.4 万词 / 14.2 万例句）：
+   通过词书关联反查考纲，中英文关键词模糊匹配（如「四级」/「CET4」）
+2. **dict-master**（有道背单词词书 dump，81 本 zip）：仅处理映射到 11 个允许考纲的词书
+   （CET4/CET6/KaoYan/IELTS/TOEFL/GRE/GMAT/BEC/Level4/Level8/GaoZhong），
+   SAT、初中、小学等词书整本跳过；提供音标、释义、例句、同反义词、派生词、短语
+3. **cet6-vocabulary**（六级真题高频词 CSV + 简洁版词义表）：标记为 `cet6` 考纲，
+   自动过滤 `filter_reason` 标注的低价值词条
+
+统一规则：强制性 11 考纲筛选 → 词性提取 / 频率分级（★★★/★★/★/认知）→ 跨词书考纲标签取并集 →
+与现有 `words.js` 按 word 去重（不覆盖原文件）。数据源目录可用 `SOURCE_DIR` 环境变量指定。
+
+当前合并结果：**23,927 词**（11 个考纲全覆盖），其中 19,646 词含例句、11,196 词跨多个考纲；
+各考纲覆盖：gre 7,180 / toefl 6,922 / kaoyan 6,668 / ielts 6,331 / tem8 5,552 / cet4 3,472 /
+gaokao 2,203 / cet6 2,115 / tem4 1,375 / gmat 1,309 / bec 745。
 
 ## 已知边界（后续迭代方向）
 
