@@ -1,0 +1,22 @@
+{
+  "name": "smart-vocab",
+  "version": "0.1.0",
+  "private": true,
+  "description": "多平台自适应英语学习工具 - 考纲单词学习 + 题目单词智能识别",
+  "workspaces": [
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "install:all": "npm install",
+    "dev": "concurrently -n server,client -c blue,green \"npm run dev -w server\" \"npm run dev -w client\"",
+    "dev:server": "npm run dev -w server",
+    "dev:client": "npm run dev -w client",
+    "seed": "npm run seed -w server",
+    "build": "npm run build -w client",
+    "start": "npm run start -w server"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.1"
+  }
+}

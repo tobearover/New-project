@@ -1,0 +1,24 @@
+{
+  "name": "SmartVocab 英语学习工具",
+  "short_name": "SmartVocab",
+  "description": "考纲单词学习 + 题目单词智能识别",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#4f46e5",
+  "lang": "zh-CN",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
