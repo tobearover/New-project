@@ -126,13 +126,40 @@ function parseMeanings(paraphrase, freqLabel) {
     });
 }
 
-/** 词书名称 -> SmartVocab 考纲标识；无法识别则返回 null（忽略该考纲） */
-function mapBookToSyllabus(bookname) {
-  if (/四级/.test(bookname)) return 'cet4';
-  if (/考研/.test(bookname)) return 'kaoyan';
-  if (/雅思/.test(bookname)) return 'ielts';
-  if (/托福/.test(bookname)) return 'toefl';
-  return null;
+/**
+ * 强制性考纲筛选规则：仅保留关联到以下 11 个考纲词书的单词，其余全部丢弃。
+ * 关键词支持中英文模糊包含匹配；英文不区分大小写并忽略 -、_、空格（如 CET-4 == CET4）。
+ */
+const SYLLABUS_RULES = [
+  { id: 'cet4', keywords: ['大学英语四级', '四级', 'CET4', 'CET-4', 'CET 4'] },
+  { id: 'cet6', keywords: ['大学英语六级', '六级', 'CET6', 'CET-6', 'CET 6'] },
+  { id: 'kaoyan', keywords: ['研究生英语', '考研英语', '考研'] },
+  { id: 'ielts', keywords: ['雅思', 'IELTS'] },
+  { id: 'toefl', keywords: ['托福', 'TOEFL'] },
+  { id: 'gre', keywords: ['GRE'] },
+  { id: 'gmat', keywords: ['GMAT'] },
+  { id: 'tem4', keywords: ['英语专业四级', '专业四级', '专四', 'TEM4', 'TEM-4'] },
+  { id: 'tem8', keywords: ['英语专业八级', '专业八级', '专八', 'TEM8', 'TEM-8'] },
+  { id: 'bec', keywords: ['商务英语', 'BEC'] },
+  { id: 'gaokao', keywords: ['高中英语', '高考'] }
+];
+
+/** 词书名称 -> 命中的考纲标识列表（可能命中多个，如词书同时涵盖四级与考研） */
+function matchSyllabus(bookname) {
+  const upper = bookname.toUpperCase().replace(/[-_\s]/g, '');
+  const hits = [];
+  for (const rule of SYLLABUS_RULES) {
+    const matched = rule.keywords.some((kw) => {
+      if (/[\u4e00-\u9fa5]/.test(kw)) return bookname.includes(kw);
+      return upper.includes(kw.toUpperCase().replace(/[-_\s]/g, ''));
+    });
+    if (!matched) continue;
+    // 防误判：普通“四级/六级”不应命中“英语专业四级/专业八级”等专业考纲词书
+    if (rule.id === 'cet4' && /专业四级|专四|TEM[- ]?4/i.test(bookname)) continue;
+    if (rule.id === 'cet6' && /专业六级|专六|TEM[- ]?6/i.test(bookname)) continue;
+    hits.push(rule.id);
+  }
+  return hits;
 }
 
 /** 按规格生成目标词条对象（保留空字段，便于后续 AI 补全） */
@@ -183,18 +210,20 @@ for (const ex of examplesRaw) {
   exampleIndex.get(ex.wordid).push({ en: ex.en, cn: ex.cn, heat: ex.heat || 0 });
 }
 
-console.log('正在建立考纲索引…');
-const bookNameById = new Map(); // bookid -> bookname
-for (const b of books) bookNameById.set(b.bookid, b.bookname);
+console.log('正在建立考纲索引并执行强制筛选…');
+// bookid -> 考纲标识列表（由 bookname 模糊匹配得到；匹配不到的词书视为“非考纲词书”）
+const syllabusByBook = new Map();
+for (const b of books) syllabusByBook.set(b.bookid, matchSyllabus(b.bookname));
 
-const syllabusByWord = new Map(); // wordid -> 考纲标识数组（去重、有序）
+// wordid -> 去重后的考纲标识列表（跨词书取并集）
+const syllabusByWord = new Map();
 for (const link of vocBook) {
-  const bookname = bookNameById.get(link.bookid);
-  if (!bookname) continue;
-  const mapped = mapBookToSyllabus(bookname);
-  if (!mapped) continue; // 无法映射的考纲直接忽略
+  const ids = syllabusByBook.get(link.bookid);
+  if (!ids || ids.length === 0) continue;
   const list = syllabusByWord.get(link.wordid) || [];
-  if (!list.includes(mapped)) list.push(mapped);
+  for (const id of ids) {
+    if (!list.includes(id)) list.push(id);
+  }
   syllabusByWord.set(link.wordid, list);
 }
 
@@ -205,11 +234,19 @@ const existingSet = new Set(existingWords.map((w) => String(w.word).toLowerCase(
 const merged = [];
 let added = 0;
 let skipped = 0;
+let filteredOut = 0;
 let withExamples = 0;
 let withSyllabus = 0;
 
 console.log('正在合并词条…');
 for (const record of vocabulary) {
+  // 强制性考纲筛选：先于任何字段映射；未关联任何允许考纲词书的单词直接丢弃
+  const syllabi = syllabusByWord.get(record.wordid) || [];
+  if (syllabi.length === 0) {
+    filteredOut += 1;
+    continue;
+  }
+
   const key = String(record.spelling).toLowerCase();
   if (existingSet.has(key)) {
     skipped += 1;
@@ -224,7 +261,6 @@ for (const record of vocabulary) {
     .slice(0, 3)
     .map(({ en, cn }) => ({ en, cn }));
 
-  const syllabi = syllabusByWord.get(record.wordid) || [];
   merged.push(buildEntry(record, examples, syllabi));
 
   added += 1;
@@ -259,6 +295,8 @@ try {
 console.log('\n========== 合并完成 ==========');
 console.log(`原词库词条数          ：${existingWords.length}`);
 console.log(`开源词库总词条数      ：${vocabulary.length}`);
+console.log(`被考纲筛选丢弃词条数  ：${filteredOut}`);
+console.log(`筛选后保留词条数      ：${vocabulary.length - filteredOut}`);
 console.log(`成功新增词条数        ：${added}`);
 console.log(`重复跳过词条数        ：${skipped}`);
 console.log(`包含例句的单词数      ：${withExamples}`);

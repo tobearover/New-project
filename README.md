@@ -30,9 +30,21 @@
 | 智能考试与记忆 | ✅ 四种测验 + 艾宾浩斯间隔重复（1/2/4/7/15/30 天） |
 | 多平台自适应 | ✅ 响应式布局（手机底部导航/桌面顶栏）+ PWA（manifest + Service Worker） |
 
+## 开源词库合并（english-vocabulary）
+
+`npm run merge:vocab` 可将开源词库 [english-vocabulary](https://github.com/zhenghaoyang24/english-vocabulary)
+（10.4 万词 / 14.2 万例句）合并为 `server/src/seed/words_merged.js`：
+
+- 强制考纲筛选：仅保留关联到 cet4 / cet6 / kaoyan / ielts / toefl / gre / gmat / tem4 / tem8 / bec / gaokao
+  这 11 个考纲词书的单词，其余整词丢弃（中英文关键词模糊匹配，如「四级」/「CET4」）
+- 词性提取、频率分级（★★★/★★/★/认知）、例句按热度取前 3、考纲标签合并
+- 与现有 `words.js` 按 word 去重，不覆盖原文件；数据源目录可用 `SOURCE_DIR` 环境变量指定
+- 当前数据源仅含四级/考研/雅思/托福四类词书，合并后约 7,790 词，其中 5,450 词跨多个考纲
+
 ## 已知边界（后续迭代方向）
 
 - 种子词库为高质量示例数据（约 400 词），正式词库可按考纲版本批量导入（词条结构见 `server/src/seed/words.js`）
+- `words_merged.js` 使用新结构（`phonetic_uk`、`meanings` 对象、`syllabus` 数组），与运行时词库结构不同，接入应用前需适配层
 - 当前为单用户本地存储（无登录体系）；正式上线需接入用户系统与 MongoDB/MySQL
 - OCR 使用本地 Tesseract，首次识别会下载英文语言包；生产环境可替换为百度/腾讯/Google OCR API（`server/src/services/ocr.js` 是唯一接入点）
 - 测验答案目前由客户端校验；正式上线应在服务端出题与判分，避免被前端篡改
