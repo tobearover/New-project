@@ -62,7 +62,8 @@ function toSummary(record) {
     matchedCount: record.matchedCount,
     phraseCount: record.phraseCount || 0,
     matchedWords: record.matchedWords || [],
-    rawText: record.rawText || ''
+    // 列表展示只带原文摘要，完整原文保留在记录中供详情查看
+    rawText: (record.rawText || '').slice(0, 500)
   };
 }
 
@@ -138,7 +139,7 @@ router.post('/', upload.single('image'), async (req, res) => {
     matchedCount: matched.stats.matchedWords,
     phraseCount: matched.stats.matchedPhrases,
     matchedWords: Object.values(matched.groups).flat().map((w) => w.word),
-    rawText: ocrResult.text.slice(0, 500)
+    rawText: ocrResult.text // 保存完整原文，历史详情据此重新提取结果
   };
   db.recognitionHistory.push(record);
   save();
@@ -164,6 +165,36 @@ router.get('/history', (req, res) => {
   const limit = Math.min(parseInt(req.query.limit, 10) || 20, MAX_HISTORY);
   const items = db.recognitionHistory.slice(-limit).reverse().map(toSummary);
   res.json({ total: db.recognitionHistory.length, windowMinutes: DEDUP_WINDOW_MIN, items });
+});
+
+/**
+ * 历史识别详情：用记录中的完整原文 + 当前词库/生词本状态重新提取，
+ * 返回与实时识别一致的结果结构（不保存完整分组结果，避免 db.json 膨胀）。
+ */
+router.get('/history/:id', (req, res) => {
+  const db = getDb();
+  const record = (db.recognitionHistory || []).find((r) => r.id === req.params.id);
+  if (!record) return res.status(404).json({ error: '识别记录不存在或已过期清理' });
+
+  const matched = extractAndMatch({
+    text: record.rawText || '',
+    words: db.words,
+    phrases: db.phrases,
+    syllabusId: record.syllabus || null,
+    wordbook: db.wordbook
+  });
+
+  res.json({
+    syllabus: record.syllabus || null,
+    engine: record.engine,
+    fallback: !!record.fallback,
+    rawText: record.rawText || '',
+    historyId: record.id,
+    recognizedAt: record.createdAt,
+    duplicate: false,
+    windowMinutes: DEDUP_WINDOW_MIN,
+    ...matched
+  });
 });
 
 /** 清空识别历史 */

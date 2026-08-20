@@ -1,5 +1,19 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import {
+  AlertTriangle,
+  Camera,
+  CheckCircle2,
+  ChevronDown,
+  Eye,
+  FileText,
+  History,
+  ImagePlus,
+  Keyboard,
+  ScanLine,
+  Settings2,
+  Trash2
+} from 'lucide-react';
 import { api } from '../api';
 import { useApp } from '../store';
 import { renderToCanvas, canvasToBlob } from '../utils/preprocess';
@@ -14,6 +28,25 @@ const PREPROCESS_OPTIONS = [
   { key: 'denoise', label: '去噪' }
 ];
 
+const TYPE_OPTIONS = [
+  { key: 'high_frequency', label: '高频词汇' },
+  { key: 'frequent', label: '常考词汇' },
+  { key: 'key', label: '重点词汇' },
+  { key: 'cognition', label: '认知词汇' }
+];
+
+const TYPE_FILTER_KEY = 'smartvocab.scanTypeFilter';
+const PHRASES_KEY = 'smartvocab.scanShowPhrases';
+const DEFAULT_FILTER = { high_frequency: true, frequent: true, key: true, cognition: true };
+
+function loadFilter() {
+  try {
+    return { ...DEFAULT_FILTER, ...JSON.parse(localStorage.getItem(TYPE_FILTER_KEY) || '{}') };
+  } catch {
+    return DEFAULT_FILTER;
+  }
+}
+
 export default function Scan() {
   const { syllabusId } = useApp();
   const [mode, setMode] = useState('camera'); // camera | upload | text
@@ -24,17 +57,30 @@ export default function Scan() {
   const [mockText, setMockText] = useState('');
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
-  const [duplicate, setDuplicate] = useState(null); // { message, previous, windowMinutes }
+  const [duplicate, setDuplicate] = useState(null);
+  const [viewingHistory, setViewingHistory] = useState(null); // { id, time }
   const [history, setHistory] = useState([]);
   const [historyWindow, setHistoryWindow] = useState(30);
   const [error, setError] = useState('');
   const [syllabi, setSyllabi] = useState([]);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [typeFilter, setTypeFilter] = useState(loadFilter);
+  const [showPhrases, setShowPhrases] = useState(() => localStorage.getItem(PHRASES_KEY) !== '0');
 
   const videoRef = useRef(null);
   const fileRef = useRef(null);
   const imgRef = useRef(null);
   const streamRef = useRef(null);
   const lastCanvasRef = useRef(null);
+  const resultRef = useRef(null);
+
+  useEffect(() => {
+    localStorage.setItem(TYPE_FILTER_KEY, JSON.stringify(typeFilter));
+  }, [typeFilter]);
+
+  useEffect(() => {
+    localStorage.setItem(PHRASES_KEY, showPhrases ? '1' : '0');
+  }, [showPhrases]);
 
   useEffect(() => {
     api.syllabi().then(setSyllabi).catch(() => {});
@@ -58,8 +104,30 @@ export default function Scan() {
     try {
       await api.recognitionHistoryClear();
       setHistory([]);
+      setResult(null);
+      setViewingHistory(null);
     } catch (err) {
       alert(err.message);
+    }
+  };
+
+  /** 查看历史识别详情：服务端用记录的完整原文重新提取，返回与实时识别一致的结果 */
+  const viewHistory = async (item) => {
+    if (busy) return;
+    setBusy(true);
+    setError('');
+    setDuplicate(null);
+    try {
+      const data = await api.recognitionHistoryItem(item.id);
+      setResult(data);
+      setViewingHistory({ id: item.id, time: item.createdAt });
+      setTimeout(() => {
+        resultRef.current && resultRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 80);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -121,6 +189,7 @@ export default function Scan() {
     setError('');
     setResult(null);
     setDuplicate(null);
+    setViewingHistory(null);
     try {
       const form = new FormData();
       form.append('syllabus', syllabusId);
@@ -148,6 +217,16 @@ export default function Scan() {
 
   const currentSyllabus = syllabi.find((s) => s.id === syllabusId);
 
+  // 按筛选设置过滤结果分组
+  const visibleGroups = result
+    ? result.orderedGroups.filter((g) => typeFilter[g.level] !== false && g.words.length > 0)
+    : [];
+  const enabledTypeCount = TYPE_OPTIONS.filter((t) => typeFilter[t.key]).length;
+
+  const engineLabel = (engine, fallback) =>
+    (engine === 'tesseract' ? 'Tesseract OCR' : engine === 'demo' ? '演示文本' : 'OCR') +
+    (fallback ? '（已回退）' : '');
+
   return (
     <div className="space-y-5">
       <div>
@@ -161,26 +240,92 @@ export default function Scan() {
         </p>
       </div>
 
+      {/* 顶部可伸缩筛选设置条 */}
+      <section className="card overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setSettingsOpen((v) => !v)}
+          className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-slate-50/60"
+          aria-expanded={settingsOpen}
+        >
+          <span className="flex min-w-0 items-center gap-2 text-sm font-semibold text-slate-800">
+            <Settings2 className="h-4 w-4 shrink-0 text-brand-600" />
+            识别结果筛选设置
+            <span className="hidden truncate text-xs font-normal text-slate-400 sm:inline">
+              显示 {enabledTypeCount}/4 类词汇{showPhrases ? ' · 含词组' : ' · 不含词组'}
+            </span>
+          </span>
+          <ChevronDown
+            className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${settingsOpen ? 'rotate-180' : ''}`}
+          />
+        </button>
+
+        {settingsOpen && (
+          <div className="border-t border-slate-100 px-4 py-4">
+            <div className="mb-2 text-xs font-medium text-slate-500">显示词类</div>
+            <div className="flex flex-wrap gap-2">
+              {TYPE_OPTIONS.map((t) => {
+                const active = typeFilter[t.key];
+                return (
+                  <button
+                    key={t.key}
+                    type="button"
+                    onClick={() => setTypeFilter((f) => ({ ...f, [t.key]: !f[t.key] }))}
+                    className={`chip ring-1 px-3 py-1.5 transition ${
+                      active
+                        ? 'bg-brand-600 text-white ring-brand-600'
+                        : 'bg-white text-slate-500 ring-slate-300 hover:bg-slate-50'
+                    }`}
+                  >
+                    {t.label} {active ? '✓' : ''}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <label className="chip cursor-pointer bg-white text-slate-600 ring-1 ring-slate-300">
+                <input
+                  type="checkbox"
+                  className="mr-1 accent-brand-600"
+                  checked={showPhrases}
+                  onChange={(e) => setShowPhrases(e.target.checked)}
+                />
+                显示词组短语
+              </label>
+              <button
+                type="button"
+                onClick={() => setTypeFilter({ ...DEFAULT_FILTER })}
+                className="text-xs text-brand-600 hover:underline"
+              >
+                全部显示
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
+
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="card p-5">
           <div className="mb-4 flex flex-wrap gap-2">
             {[
-              ['camera', '📷 拍照识别'],
-              ['upload', '🖼️ 图片导入'],
-              ['text', '⌨️ 粘贴文本']
-            ].map(([key, label]) => (
+              ['camera', '拍照识别', Camera],
+              ['upload', '图片导入', ImagePlus],
+              ['text', '粘贴文本', Keyboard]
+            ].map(([key, label, Icon]) => (
               <button
                 key={key}
                 onClick={() => {
                   setMode(key);
                   setResult(null);
                   setDuplicate(null);
+                  setViewingHistory(null);
                   if (key !== 'camera') stopCamera();
                 }}
                 className={`chip ring-1 px-3.5 py-1.5 transition ${
                   mode === key ? 'bg-brand-600 text-white ring-brand-600' : 'bg-white text-slate-600 ring-slate-300'
                 }`}
               >
+                <Icon className="h-3.5 w-3.5" />
                 {label}
               </button>
             ))}
@@ -199,7 +344,7 @@ export default function Scan() {
             <div className="space-y-3">
               {!cameraOn ? (
                 <button onClick={startCamera} className="btn-primary w-full py-8 text-base">
-                  📷 打开摄像头
+                  <Camera className="h-5 w-5" /> 打开摄像头
                 </button>
               ) : (
                 <>
@@ -228,7 +373,7 @@ export default function Scan() {
                 onClick={() => fileRef.current && fileRef.current.click()}
                 className="flex w-full flex-col items-center gap-2 rounded-xl border-2 border-dashed border-slate-300 py-8 text-slate-500 hover:border-brand-400 hover:text-brand-600"
               >
-                <span className="text-3xl">🖼️</span>
+                <ImagePlus className="h-8 w-8" />
                 <span className="text-sm">从相册 / 文件选择题目图片</span>
               </button>
               <input
@@ -269,6 +414,7 @@ export default function Scan() {
           )}
 
           <button onClick={() => submit()} disabled={busy} className="btn-primary mt-4 w-full py-3">
+            <ScanLine className="h-4 w-4" />
             {busy ? '识别中，请稍候…' : '开始识别'}
           </button>
           {error && <p className="mt-3 text-sm text-red-500">{error}</p>}
@@ -279,7 +425,7 @@ export default function Scan() {
           )}
         </div>
 
-        <div className="space-y-4">
+        <div ref={resultRef} className="scroll-mt-20 space-y-4">
           {!result && !busy && (
             <EmptyState
               icon="🧾"
@@ -291,7 +437,7 @@ export default function Scan() {
           {duplicate && (
             <div className="card border-l-4 border-l-amber-400 p-5">
               <div className="flex items-start gap-3">
-                <span className="text-2xl">⚠️</span>
+                <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" />
                 <div className="min-w-0 flex-1">
                   <div className="font-semibold text-slate-900">已检测到重复识别</div>
                   <p className="mt-1 text-sm text-slate-600">{duplicate.message}</p>
@@ -301,7 +447,7 @@ export default function Scan() {
                       {duplicate.previous.matchedWords.length > 0
                         ? `（${duplicate.previous.matchedWords.slice(0, 8).join('、')}${duplicate.previous.matchedWords.length > 8 ? '…' : ''}）`
                         : ''}
-                      ，引擎：{duplicate.previous.engine === 'tesseract' ? 'Tesseract OCR' : duplicate.previous.engine === 'demo' ? '演示文本' : 'OCR'}
+                      ，引擎：{engineLabel(duplicate.previous.engine)}
                     </p>
                   )}
                   <div className="mt-3 flex flex-wrap gap-2">
@@ -321,13 +467,18 @@ export default function Scan() {
             <>
               <div className="card flex items-center justify-between p-4">
                 <div className="flex items-center gap-3">
-                  <span className="text-2xl">✅</span>
+                  {viewingHistory ? (
+                    <History className="h-6 w-6 text-brand-600" />
+                  ) : (
+                    <CheckCircle2 className="h-6 w-6 text-emerald-500" />
+                  )}
                   <div>
-                    <div className="font-semibold text-slate-900">识别完成</div>
-                    <div className="text-xs text-slate-500">
-                      引擎：{result.engine === 'tesseract' ? 'Tesseract OCR' : result.engine === 'demo' ? '演示文本' : 'OCR'}
-                      {result.fallback ? '（已回退）' : ''}
+                    <div className="font-semibold text-slate-900">
+                      {viewingHistory
+                        ? `历史识别结果 · ${new Date(viewingHistory.time).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`
+                        : '识别完成'}
                     </div>
+                    <div className="text-xs text-slate-500">引擎：{engineLabel(result.engine, result.fallback)}</div>
                   </div>
                 </div>
                 <div className="text-right text-xs text-slate-500">
@@ -344,9 +495,19 @@ export default function Scan() {
                 </p>
               </details>
 
-              {result.orderedGroups
-                .filter((g) => g.words.length > 0)
-                .map((group) => (
+              {visibleGroups.length === 0 ? (
+                <div className="card flex flex-col items-center gap-2 px-6 py-8 text-center">
+                  <div className="text-sm text-slate-500">当前筛选条件下没有可显示的词汇</div>
+                  <button
+                    type="button"
+                    onClick={() => setTypeFilter({ ...DEFAULT_FILTER })}
+                    className="btn-secondary mt-1"
+                  >
+                    显示全部词类
+                  </button>
+                </div>
+              ) : (
+                visibleGroups.map((group) => (
                   <div key={group.level} className="card overflow-hidden">
                     <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/60 px-4 py-2.5">
                       <span className="flex items-center gap-2 text-sm font-semibold text-slate-800">
@@ -375,12 +536,13 @@ export default function Scan() {
                       ))}
                     </div>
                   </div>
-                ))}
+                ))
+              )}
 
-              {result.phrases.length > 0 && (
+              {showPhrases && result.phrases.length > 0 && (
                 <div className="card overflow-hidden">
                   <div className="border-b border-slate-100 bg-slate-50/60 px-4 py-2.5 text-sm font-semibold text-slate-800">
-                    🧩 词组短语（{result.phrases.length}）
+                    词组短语（{result.phrases.length}）
                   </div>
                   <div className="divide-y divide-slate-100">
                     {result.phrases.map((p) => (
@@ -392,7 +554,6 @@ export default function Scan() {
                   </div>
                 </div>
               )}
-
             </>
           )}
         </div>
@@ -400,11 +561,16 @@ export default function Scan() {
 
       <section className="card overflow-hidden">
         <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/60 px-4 py-3">
-          <div className="text-sm font-semibold text-slate-800">
-            🕘 识别历史（{historyWindow} 分钟窗口内自动去重）
+          <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+            <History className="h-4 w-4 text-brand-600" />
+            识别历史（{historyWindow} 分钟窗口内自动去重）
           </div>
           {history.length > 0 && (
-            <button onClick={clearHistory} className="text-xs text-slate-400 hover:text-red-500">
+            <button
+              onClick={clearHistory}
+              className="flex items-center gap-1 text-xs text-slate-400 hover:text-red-500"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
               清空历史
             </button>
           )}
@@ -414,12 +580,27 @@ export default function Scan() {
         ) : (
           <div className="max-h-80 divide-y divide-slate-100 overflow-y-auto">
             {history.map((h) => (
-              <div key={h.id} className="flex items-center gap-3 px-4 py-3">
-                <span className="text-lg">{h.engine === 'tesseract' ? '🖼️' : '⌨️'}</span>
+              <button
+                key={h.id}
+                type="button"
+                onClick={() => viewHistory(h)}
+                className="flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-brand-50/40"
+                title="查看该次识别结果"
+              >
+                {h.engine === 'tesseract' ? (
+                  <Camera className="h-5 w-5 shrink-0 text-slate-400" />
+                ) : (
+                  <FileText className="h-5 w-5 shrink-0 text-slate-400" />
+                )}
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
                     <span className="font-medium text-slate-700">
-                      {new Date(h.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+                      {new Date(h.createdAt).toLocaleString('zh-CN', {
+                        month: '2-digit',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}
                     </span>
                     <span className="chip bg-brand-50 text-brand-600 ring-1 ring-brand-100">
                       {(h.syllabus || 'all').toUpperCase()}
@@ -441,7 +622,8 @@ export default function Scan() {
                     </div>
                   )}
                 </div>
-              </div>
+                <Eye className="h-4 w-4 shrink-0 text-slate-300" />
+              </button>
             ))}
           </div>
         )}
