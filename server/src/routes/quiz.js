@@ -1,5 +1,6 @@
 const express = require('express');
 const { getDb, getWord, upsertWordbook, pushHistory } = require('../db');
+const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -84,7 +85,7 @@ router.get('/', (req, res) => {
 });
 
 // 提交答案：{ wordId, questionType, correct }；答错自动收入错题本
-router.post('/answer', (req, res) => {
+router.post('/answer', requireAuth, (req, res) => {
   const { wordId, questionType, correct } = req.body || {};
   const db = getDb();
   if (!wordId || !getWord(wordId)) return res.status(404).json({ error: '单词不存在' });
@@ -92,6 +93,7 @@ router.post('/answer', (req, res) => {
   const word = getWord(wordId);
   pushHistory({
     type: 'quiz',
+    userId: req.user.id,
     wordId,
     word: word ? word.word : wordId,
     questionType,
@@ -100,9 +102,9 @@ router.post('/answer', (req, res) => {
 
   let wrongAdded = false;
   if (!correct) {
-    const existing = db.wordbook[wordId];
+    const existing = (db.wordbook[req.user.id] || {})[wordId];
     if (!existing || existing.status !== 'new') {
-      upsertWordbook(wordId, 'new');
+      upsertWordbook(req.user.id, wordId, 'new');
       wrongAdded = true;
     }
   }

@@ -4,11 +4,13 @@ const { ensureDb } = require('./db');
 
 const syllabiRouter = require('./routes/syllabi');
 const wordsRouter = require('./routes/words');
+const authRouter = require('./routes/auth');
 const recognitionRouter = require('./routes/recognition');
 const historyRouter = require('./routes/history');
 const wordbookRouter = require('./routes/wordbook');
 const reviewRouter = require('./routes/review');
 const quizRouter = require('./routes/quiz');
+const { requireAuth } = require('./middleware/auth');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -29,13 +31,14 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+app.use('/api/auth', authRouter);
 app.use('/api/syllabi', syllabiRouter);
 app.use('/api/words', wordsRouter);
-app.use('/api/recognition', recognitionRouter);
-app.use('/api/history', historyRouter);
-app.use('/api/wordbook', wordbookRouter);
-app.use('/api/review', reviewRouter);
-app.use('/api/quiz', quizRouter);
+app.use('/api/recognition', requireAuth, recognitionRouter);
+app.use('/api/history', requireAuth, historyRouter);
+app.use('/api/wordbook', requireAuth, wordbookRouter);
+app.use('/api/review', requireAuth, reviewRouter);
+app.use('/api/quiz', quizRouter); // POST /answer 内部单独鉴权
 
 app.use((req, res) => res.status(404).json({ error: '接口不存在' }));
 

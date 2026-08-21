@@ -30,18 +30,18 @@ function dedupKey(text, syllabus) {
   return sha256(`${normalizeForDedup(text)}|${syllabus || ''}`);
 }
 
-/** 清理策略：删除超出时间窗口的旧识别记录，并限制识别类记录上限 */
-function purgeHistory(dbRef) {
+/** 清理策略：删除超出时间窗口的旧识别记录，并按用户限制识别类记录上限 */
+function purgeHistory(dbRef, userId) {
   const cutoff = Date.now() - DEDUP_WINDOW_MIN * 60000;
   dbRef.history = (dbRef.history || []).filter(
     (r) => r.type !== 'recognition' || new Date(r.createdAt).getTime() >= cutoff
   );
-  const recognitions = dbRef.history.filter((r) => r.type === 'recognition');
+  const recognitions = dbRef.history.filter((r) => r.type === 'recognition' && r.userId === userId);
   if (recognitions.length > MAX_HISTORY) {
     const excess = recognitions.length - MAX_HISTORY;
     let removed = 0;
     dbRef.history = dbRef.history.filter((r) => {
-      if (r.type === 'recognition' && removed < excess) {
+      if (r.type === 'recognition' && r.userId === userId && removed < excess) {
         removed += 1;
         return false;
       }
@@ -51,12 +51,13 @@ function purgeHistory(dbRef) {
 }
 
 /** 在时间窗口内查找同内容的识别记录 */
-function findDuplicate(dbRef, key) {
+function findDuplicate(dbRef, key, userId) {
   const cutoff = Date.now() - DEDUP_WINDOW_MIN * 60000;
   return (
     (dbRef.history || []).find(
       (r) =>
         r.type === 'recognition' &&
+        r.userId === userId &&
         r.key === key &&
         new Date(r.createdAt).getTime() >= cutoff
     ) || null
@@ -101,7 +102,7 @@ router.post('/', upload.single('image'), async (req, res) => {
   const force = req.body && (req.body.force === 'true' || req.body.force === '1');
   const db = getDb();
 
-  purgeHistory(db);
+  purgeHistory(db, req.user.id);
 
   let ocrResult = null;
   let imageFastKey = null;
@@ -112,7 +113,7 @@ router.post('/', upload.single('image'), async (req, res) => {
     // 图片字节哈希作为快速去重键：同一张图片重复上传时无需再跑 OCR
     imageFastKey = dedupKey('img:' + sha256(req.file.buffer), syllabus);
     if (!force) {
-      const dup = findDuplicate(db, imageFastKey);
+      const dup = findDuplicate(db, imageFastKey, req.user.id);
       if (dup) return res.json(duplicateResponse(dup));
     }
     ocrResult = await recognizeImage(req.file.buffer);
@@ -128,7 +129,7 @@ router.post('/', upload.single('image'), async (req, res) => {
   // 注意：OCR 失败回退的演示文本不代表真实内容，跳过文本级去重，仅保留图片字节级去重
   const textKey = dedupKey(ocrResult.text, syllabus);
   if (!force && !ocrResult.fallback) {
-    const dup = findDuplicate(db, textKey);
+    const dup = findDuplicate(db, textKey, req.user.id);
     if (dup) return res.json(duplicateResponse(dup));
   }
 
@@ -143,6 +144,7 @@ router.post('/', upload.single('image'), async (req, res) => {
   // 记录本次识别（同一内容强制重识别时会新增记录，最新记录用于后续去重）
   const record = pushHistory({
     type: 'recognition',
+    userId: req.user.id,
     key: textKey,
     syllabus: syllabus || null,
     engine: ocrResult.engine,
@@ -171,10 +173,10 @@ router.post('/', upload.single('image'), async (req, res) => {
 /** 识别历史列表（默认最近 20 条） */
 router.get('/history', (req, res) => {
   const db = getDb();
-  purgeHistory(db);
+  purgeHistory(db, req.user.id);
   const limit = Math.min(parseInt(req.query.limit, 10) || 20, MAX_HISTORY);
   const recognitions = db.history
-    .filter((r) => r.type === 'recognition')
+    .filter((r) => r.type === 'recognition' && r.userId === req.user.id)
     .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''))
     .reverse();
   const items = recognitions.slice(0, limit).map(toSummary);
@@ -188,7 +190,7 @@ router.get('/history', (req, res) => {
 router.get('/history/:id', (req, res) => {
   const db = getDb();
   const record = (db.history || []).find(
-    (r) => r.type === 'recognition' && r.id === req.params.id
+    (r) => r.type === 'recognition' && r.id === req.params.id && r.userId === req.user.id
   );
   if (!record) return res.status(404).json({ error: '识别记录不存在或已过期清理' });
 
@@ -216,7 +218,9 @@ router.get('/history/:id', (req, res) => {
 /** 清空识别历史 */
 router.delete('/history', (req, res) => {
   const db = getDb();
-  db.history = (db.history || []).filter((r) => r.type !== 'recognition');
+  db.history = (db.history || []).filter(
+    (r) => !(r.type === 'recognition' && r.userId === req.user.id)
+  );
   save();
   res.json({ ok: true });
 });

@@ -3,6 +3,7 @@ dist/
 *.log
 .DS_Store
 server/data/db.json
+server/data/db.json.bak
 server/data/uploads/
 server/*.traineddata
 english-vocabulary-master/

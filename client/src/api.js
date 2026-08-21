@@ -1,7 +1,13 @@
 const BASE = '/api';
+const TOKEN_KEY = 'smartvocab.token';
+const USER_KEY = 'smartvocab.user';
 
 async function request(path, options = {}) {
   const opts = { ...options };
+  const token = localStorage.getItem(TOKEN_KEY);
+  if (token) {
+    opts.headers = { ...(opts.headers || {}), Authorization: `Bearer ${token}` };
+  }
   if (!(opts.body instanceof FormData) && opts.body && typeof opts.body !== 'string') {
     opts.body = JSON.stringify(opts.body);
     opts.headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
@@ -13,6 +19,11 @@ async function request(path, options = {}) {
   } catch {
     data = null;
   }
+  // 登录失效：清除本地凭证（登录/注册接口的 401/400 除外）
+  if (res.status === 401 && !path.startsWith('/auth/')) {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
+  }
   if (!res.ok) {
     throw new Error((data && data.error) || `请求失败（${res.status}）`);
   }
@@ -20,6 +31,12 @@ async function request(path, options = {}) {
 }
 
 export const api = {
+  authRegister: (username, password) =>
+    request('/auth/register', { method: 'POST', body: { username, password } }),
+  authLogin: (username, password) =>
+    request('/auth/login', { method: 'POST', body: { username, password } }),
+  authLogout: () => request('/auth/logout', { method: 'POST' }),
+  authMe: () => request('/auth/me'),
   syllabi: () => request('/syllabi'),
   words: (params = {}) => request(`/words?${new URLSearchParams(params)}`),
   word: (id) => request(`/words/${encodeURIComponent(id)}`),

@@ -25,7 +25,7 @@ function join(entry) {
 // 到期复习列表（生词本中 nextReview <= 今天）
 router.get('/due', (req, res) => {
   const db = getDb();
-  const items = Object.values(db.wordbook)
+  const items = Object.values(db.wordbook[req.user.id] || {})
     .filter(isDue)
     .map(join)
     .filter(Boolean);
@@ -36,12 +36,12 @@ router.get('/due', (req, res) => {
 router.post('/complete', (req, res) => {
   const { wordId, result } = req.body || {};
   const db = getDb();
-  const entry = db.wordbook[wordId];
+  const entry = (db.wordbook[req.user.id] || {})[wordId];
   if (!entry) return res.status(404).json({ error: '该单词不在生词本中' });
   if (!['again', 'good', 'easy'].includes(result)) {
     return res.status(400).json({ error: 'result 必须是 again/good/easy' });
   }
-  const updated = upsertWordbook(wordId, entry.status, applyResult(entry, result));
+  const updated = upsertWordbook(req.user.id, wordId, entry.status, applyResult(entry, result));
   res.json(join(updated));
 });
 

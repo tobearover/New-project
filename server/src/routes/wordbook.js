@@ -34,7 +34,7 @@ function joinWord(entry) {
 
 router.get('/stats', (req, res) => {
   const db = getDb();
-  const entries = Object.values(db.wordbook);
+  const entries = Object.values(db.wordbook[req.user.id] || {});
   res.json({
     total: entries.length,
     new: entries.filter((e) => e.status === 'new').length,
@@ -47,7 +47,7 @@ router.get('/stats', (req, res) => {
 router.get('/', (req, res) => {
   const db = getDb();
   const { status, due } = req.query;
-  let entries = Object.values(db.wordbook);
+  let entries = Object.values(db.wordbook[req.user.id] || {});
   if (status) entries = entries.filter((e) => e.status === status);
   if (due === 'true') entries = entries.filter(isDue);
 
@@ -63,10 +63,11 @@ router.post('/', (req, res) => {
   if (!wordId || !getWord(wordId)) return res.status(404).json({ error: '单词不存在' });
   const valid = ['new', 'mastered', 'favorite'];
   if (status && !valid.includes(status)) return res.status(400).json({ error: '状态无效' });
-  const entry = upsertWordbook(wordId, status || 'new');
+  const entry = upsertWordbook(req.user.id, wordId, status || 'new');
   pushHistory({
     type: 'wordbook',
     action: 'add',
+    userId: req.user.id,
     wordId,
     word: getWord(wordId).word,
     status: entry.status
@@ -79,10 +80,11 @@ router.patch('/:wordId', (req, res) => {
   const valid = ['new', 'mastered', 'favorite'];
   if (!status || !valid.includes(status)) return res.status(400).json({ error: '状态无效' });
   if (!getWord(req.params.wordId)) return res.status(404).json({ error: '单词不存在' });
-  const entry = upsertWordbook(req.params.wordId, status);
+  const entry = upsertWordbook(req.user.id, req.params.wordId, status);
   pushHistory({
     type: 'wordbook',
     action: 'update',
+    userId: req.user.id,
     wordId: req.params.wordId,
     word: getWord(req.params.wordId).word,
     status: entry.status
@@ -92,10 +94,10 @@ router.patch('/:wordId', (req, res) => {
 
 router.delete('/:wordId', (req, res) => {
   const word = getWord(req.params.wordId);
-  const existed = removeWordbook(req.params.wordId);
+  const existed = removeWordbook(req.user.id, req.params.wordId);
   if (!existed) return res.status(404).json({ error: '记录不存在' });
   if (word) {
-    pushHistory({ type: 'wordbook', action: 'remove', wordId: word.id, word: word.word, status: null });
+    pushHistory({ type: 'wordbook', action: 'remove', userId: req.user.id, wordId: word.id, word: word.word, status: null });
   }
   res.json({ ok: true });
 });

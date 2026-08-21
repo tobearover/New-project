@@ -50,7 +50,7 @@ router.get('/', (req, res) => {
   const limit = Math.min(parseInt(req.query.limit, 10) || 20, MAX_PAGE_SIZE);
 
   const items = db.history
-    .filter((h) => !type || h.type === type)
+    .filter((h) => h.userId === req.user.id && (!type || h.type === type))
     .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''))
     .reverse();
 
@@ -65,7 +65,9 @@ router.get('/', (req, res) => {
 // 单条详情：识别记录返回完整结果（用完整原文重新提取），其余类型返回原始记录
 router.get('/:id', (req, res) => {
   const db = getDb();
-  const record = (db.history || []).find((h) => h.id === req.params.id);
+  const record = (db.history || []).find(
+    (h) => h.id === req.params.id && h.userId === req.user.id
+  );
   if (!record) return res.status(404).json({ error: '记录不存在或已被删除' });
 
   if (record.type === 'recognition') {
@@ -90,7 +92,7 @@ router.get('/:id', (req, res) => {
 
 // 单条删除
 router.delete('/:id', (req, res) => {
-  const existed = removeHistory(req.params.id);
+  const existed = removeHistory(req.user.id, req.params.id);
   if (!existed) return res.status(404).json({ error: '记录不存在或已被删除' });
   save();
   res.json({ ok: true });
@@ -102,7 +104,7 @@ router.delete('/', (req, res) => {
   if (!ids.length) return res.status(400).json({ error: '请提供要删除的记录 id 列表' });
   const db = getDb();
   const before = db.history.length;
-  db.history = db.history.filter((h) => !ids.includes(h.id));
+  db.history = db.history.filter((h) => !(h.userId === req.user.id && ids.includes(h.id)));
   const removed = before - db.history.length;
   save();
   res.json({ ok: true, removed });

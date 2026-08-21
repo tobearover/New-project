@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink, Link, useLocation } from 'react-router-dom';
-import { useApp } from '../store';
+import { useApp, useAuth } from '../store';
 
 const NAV = [
   { to: '/', label: '首页', icon: '🏠', end: true },
@@ -13,6 +13,7 @@ const NAV = [
 
 function DesktopNav() {
   const { syllabusId, stats } = useApp();
+  const { user, logout } = useAuth();
   return (
     <header className="sticky top-0 z-30 hidden border-b border-slate-200 bg-white/90 backdrop-blur md:block">
       <div className="mx-auto flex h-14 max-w-6xl items-center gap-6 px-6">
@@ -49,7 +50,45 @@ function DesktopNav() {
             </span>
           )}
         </Link>
+        {user ? (
+          <div className="flex items-center gap-2">
+            <span className="chip bg-brand-50 text-brand-700 ring-1 ring-brand-100">{user.username}</span>
+            <button onClick={logout} className="btn-ghost px-2 py-1 text-xs">
+              退出
+            </button>
+          </div>
+        ) : (
+          <Link to="/login" className="btn-primary px-3 py-1.5 text-xs">
+            登录 / 注册
+          </Link>
+        )}
       </div>
+    </header>
+  );
+}
+
+function MobileHeader() {
+  const { user, logout } = useAuth();
+  return (
+    <header className="sticky top-0 z-30 flex items-center justify-between border-b border-slate-200 bg-white/90 px-4 py-2.5 backdrop-blur md:hidden">
+      <Link to="/" className="flex items-center gap-2 font-bold text-brand-700">
+        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-brand-500 to-indigo-400 text-xs text-white">
+          SV
+        </span>
+        SmartVocab
+      </Link>
+      {user ? (
+        <div className="flex items-center gap-2">
+          <span className="chip bg-brand-50 text-brand-700 ring-1 ring-brand-100">{user.username}</span>
+          <button onClick={logout} className="btn-ghost px-2 py-1 text-xs">
+            退出
+          </button>
+        </div>
+      ) : (
+        <Link to="/login" className="btn-primary px-3 py-1.5 text-xs">
+          登录 / 注册
+        </Link>
+      )}
     </header>
   );
 }
@@ -90,6 +129,7 @@ export default function Layout({ children }) {
   return (
     <div className="min-h-screen">
       <DesktopNav />
+      <MobileHeader />
       <main className="mx-auto max-w-6xl px-4 pb-24 pt-5 md:px-6 md:pb-12">{children}</main>
       <MobileNav />
     </div>

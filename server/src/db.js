@@ -9,7 +9,7 @@ const DATA_DIR = path.join(__dirname, '..', 'data');
 const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
 const DB_PATH = path.join(DATA_DIR, 'db.json');
 
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 // 统一历史记录上限（超出后丢弃最旧记录，避免无界增长）
 const HISTORY_MAX = 5000;
 
@@ -17,7 +17,6 @@ let db = null;
 
 /** 完整词库 = 现有 words.js（400 个精编词条）+ 开源词库合并新增（约 2.4 万） */
 function buildSeedWords() {
-  // 精编词条先经开源数据回流富化（例句/同反义/搭配/真题），再与合并词条拼接
   const enriched = enrichCuratedWords(words);
   return [...enriched, ...buildMergedRuntimeWords(enriched)];
 }
@@ -32,21 +31,21 @@ function defaultDb() {
     syllabi,
     words: buildSeedWords(),
     phrases,
-    wordbook: {}, // wordId -> { status, addedAt, updatedAt, reviewCount, intervalIndex, nextReview, lastReviewed }
-    // 统一历史记录：识别 / 测验 / 生词本操作，均带 userId（当前单用户默认 local，
-    // 接入登录体系后按账号隔离即可）
+    users: {}, // userId -> { id, username, passwordHash, salt, createdAt }
+    sessions: {}, // token -> { userId, createdAt, expiresAt }
+    wordbook: {}, // userId -> { wordId -> { status, addedAt, updatedAt, reviewCount, intervalIndex, nextReview, lastReviewed } }
+    // 统一历史记录：识别 / 测验 / 生词本操作，按 userId 隔离
     history: []
   };
 }
 
-/**
- * 持久化仅保存用户状态（meta / wordbook / history），
- * 词库始终在启动时从种子文件构建，避免把 2.4 万词反复写入 db.json。
- */
+/** 持久化仅保存用户状态（meta / users / sessions / wordbook / history） */
 function save() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
   const state = {
     meta: { ...db.meta, wordsCount: db.words.length },
+    users: db.users,
+    sessions: db.sessions,
     wordbook: db.wordbook,
     history: db.history
   };
@@ -55,8 +54,21 @@ function save() {
   fs.renameSync(tmp, DB_PATH);
 }
 
-/** 兼容旧版（v1/v2）数据库：recognitionHistory / quizHistory 合并迁移为统一 history */
-function migrateHistory(raw, dbRef) {
+/**
+ * 词书结构迁移：旧版 wordbook = { wordId: entry } → 新版 = { userId: { wordId: entry } }
+ * 旧版单用户数据归档到 local 桶，避免丢失。
+ */
+function migrateWordbook(rawWb) {
+  const wb = rawWb || {};
+  const first = wb[Object.keys(wb)[0]];
+  if (first && typeof first === 'object' && 'wordId' in first) {
+    return { local: wb };
+  }
+  return wb;
+}
+
+/** v1/v2 历史记录迁移为统一 history */
+function migrate(raw) {
   const migrated = [];
   const seen = new Set();
 
@@ -65,7 +77,7 @@ function migrateHistory(raw, dbRef) {
     seen.add(r.id);
     migrated.push({
       id: r.id,
-      userId: 'local',
+      userId: r.userId || 'local',
       type: 'recognition',
       createdAt: r.createdAt,
       key: r.key,
@@ -84,21 +96,21 @@ function migrateHistory(raw, dbRef) {
     const id = crypto.randomUUID();
     if (seen.has(id)) continue;
     seen.add(id);
-    const w = dbRef.words.find((x) => x.id === q.wordId);
     migrated.push({
       id,
-      userId: 'local',
+      userId: q.userId || 'local',
       type: 'quiz',
       createdAt: q.answeredAt,
       wordId: q.wordId,
-      word: w ? w.word : q.wordId,
+      word: q.word || q.wordId,
       questionType: q.questionType,
       correct: !!q.correct
     });
   }
 
   migrated.sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
-  return migrated;
+
+  return { history: migrated, wordbook: migrateWordbook(raw.wordbook) };
 }
 
 function load() {
@@ -116,7 +128,6 @@ function load() {
     raw = {};
   }
 
-  // 词库从种子重建；仅迁移用户状态（兼容旧版 db.json）
   db = defaultDb();
   db.meta = {
     version: DB_VERSION,
@@ -124,16 +135,25 @@ function load() {
     wordsCount: db.words.length,
     migratedFrom: raw.meta && raw.meta.version
   };
-  db.wordbook = raw.wordbook || {};
+  db.users = raw.users || {};
+  db.sessions = raw.sessions || {};
 
   if (Array.isArray(raw.history)) {
-    db.history = raw.history;
+    db.history = raw.history.map((h) => ({ ...h, userId: h.userId || 'local' }));
+    db.wordbook = migrateWordbook(raw.wordbook);
   } else {
-    db.history = migrateHistory(raw, db);
+    const m = migrate(raw);
+    db.history = m.history;
+    db.wordbook = m.wordbook;
   }
-  // 统一裁剪：保留最近 HISTORY_MAX 条
+
+  // 清理过期会话
+  const now = Date.now();
+  for (const token of Object.keys(db.sessions)) {
+    if (new Date(db.sessions[token].expiresAt).getTime() < now) delete db.sessions[token];
+  }
   db.history = db.history.slice(-HISTORY_MAX);
-  save(); // 立即落盘为新版状态文件（不含大词库）
+  save();
   return db;
 }
 
@@ -149,38 +169,79 @@ function getWord(wordId) {
   return ensureDb().words.find((w) => w.id === wordId);
 }
 
-function wordbookEntry(wordId) {
-  return ensureDb().wordbook[wordId] || null;
+// ---------------------------------------------------------------------------
+// 用户与会话
+// ---------------------------------------------------------------------------
+function findUserByUsername(username) {
+  const key = String(username || '').trim().toLowerCase();
+  return Object.values(ensureDb().users).find((u) => u.username.toLowerCase() === key) || null;
 }
 
-/** 追加一条统一历史记录并裁剪上限 */
-function pushHistory(entry) {
+function getUser(userId) {
+  return ensureDb().users[userId] || null;
+}
+
+function createUser(username, passwordHash, salt) {
   const dbRef = ensureDb();
-  dbRef.history.push({
+  const user = {
     id: crypto.randomUUID(),
-    userId: 'local',
-    createdAt: new Date().toISOString(),
-    ...entry
-  });
-  if (dbRef.history.length > HISTORY_MAX) {
-    dbRef.history = dbRef.history.slice(-HISTORY_MAX);
+    username: String(username).trim(),
+    passwordHash,
+    salt,
+    createdAt: new Date().toISOString()
+  };
+  dbRef.users[user.id] = user;
+  dbRef.wordbook[user.id] = dbRef.wordbook[user.id] || {};
+  save();
+  return user;
+}
+
+function createSession(userId, expiresAt) {
+  const dbRef = ensureDb();
+  const token = crypto.randomBytes(32).toString('hex');
+  dbRef.sessions[token] = { userId, createdAt: new Date().toISOString(), expiresAt };
+  save();
+  return token;
+}
+
+function findSession(token) {
+  const s = ensureDb().sessions[token];
+  if (!s) return null;
+  if (new Date(s.expiresAt).getTime() < Date.now()) {
+    delete ensureDb().sessions[token];
+    save();
+    return null;
   }
-  return dbRef.history[dbRef.history.length - 1];
+  return s;
 }
 
-function removeHistory(id) {
+function removeSession(token) {
   const dbRef = ensureDb();
-  const idx = dbRef.history.findIndex((h) => h.id === id);
-  if (idx < 0) return false;
-  dbRef.history.splice(idx, 1);
-  return true;
+  const existed = !!dbRef.sessions[token];
+  delete dbRef.sessions[token];
+  if (existed) save();
+  return existed;
 }
 
-function upsertWordbook(wordId, status, patch = {}) {
+// ---------------------------------------------------------------------------
+// 生词本（按用户隔离）
+// ---------------------------------------------------------------------------
+function wordbookOf(userId) {
   const dbRef = ensureDb();
+  const uid = userId || 'local';
+  if (!dbRef.wordbook[uid]) dbRef.wordbook[uid] = {};
+  return dbRef.wordbook[uid];
+}
+
+function wordbookEntry(userId, wordId) {
+  return wordbookOf(userId)[wordId] || null;
+}
+
+function upsertWordbook(userId, wordId, status, patch = {}) {
+  const book = wordbookOf(userId);
   const now = new Date().toISOString();
-  const existing = dbRef.wordbook[wordId];
-  dbRef.wordbook[wordId] = {
+  const existing = book[wordId];
+  book[wordId] = {
     wordId,
     status: status || existing?.status || 'new',
     addedAt: existing?.addedAt || now,
@@ -192,15 +253,40 @@ function upsertWordbook(wordId, status, patch = {}) {
     ...patch
   };
   save();
-  return dbRef.wordbook[wordId];
+  return book[wordId];
 }
 
-function removeWordbook(wordId) {
-  const dbRef = ensureDb();
-  const existed = !!dbRef.wordbook[wordId];
-  delete dbRef.wordbook[wordId];
+function removeWordbook(userId, wordId) {
+  const book = wordbookOf(userId);
+  const existed = !!book[wordId];
+  delete book[wordId];
   if (existed) save();
   return existed;
+}
+
+// ---------------------------------------------------------------------------
+// 历史记录
+// ---------------------------------------------------------------------------
+function pushHistory(entry) {
+  const dbRef = ensureDb();
+  dbRef.history.push({
+    id: crypto.randomUUID(),
+    userId: entry.userId || 'local',
+    createdAt: new Date().toISOString(),
+    ...entry
+  });
+  if (dbRef.history.length > HISTORY_MAX) {
+    dbRef.history = dbRef.history.slice(-HISTORY_MAX);
+  }
+  return dbRef.history[dbRef.history.length - 1];
+}
+
+function removeHistory(userId, id) {
+  const dbRef = ensureDb();
+  const idx = dbRef.history.findIndex((h) => h.id === id && h.userId === userId);
+  if (idx < 0) return false;
+  dbRef.history.splice(idx, 1);
+  return true;
 }
 
 module.exports = {
@@ -212,9 +298,16 @@ module.exports = {
   getDb,
   save,
   getWord,
+  findUserByUsername,
+  getUser,
+  createUser,
+  createSession,
+  findSession,
+  removeSession,
+  wordbookOf,
   wordbookEntry,
-  pushHistory,
-  removeHistory,
   upsertWordbook,
-  removeWordbook
+  removeWordbook,
+  pushHistory,
+  removeHistory
 };
