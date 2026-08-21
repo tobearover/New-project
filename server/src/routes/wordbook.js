@@ -1,5 +1,5 @@
 const express = require('express');
-const { getDb, getWord, upsertWordbook, removeWordbook } = require('../db');
+const { getDb, getWord, upsertWordbook, removeWordbook, pushHistory } = require('../db');
 const { isDue } = require('../services/memory');
 const { LEVEL_LABELS } = require('../seed/words');
 
@@ -64,6 +64,13 @@ router.post('/', (req, res) => {
   const valid = ['new', 'mastered', 'favorite'];
   if (status && !valid.includes(status)) return res.status(400).json({ error: '状态无效' });
   const entry = upsertWordbook(wordId, status || 'new');
+  pushHistory({
+    type: 'wordbook',
+    action: 'add',
+    wordId,
+    word: getWord(wordId).word,
+    status: entry.status
+  });
   res.status(201).json(joinWord(entry));
 });
 
@@ -73,12 +80,23 @@ router.patch('/:wordId', (req, res) => {
   if (!status || !valid.includes(status)) return res.status(400).json({ error: '状态无效' });
   if (!getWord(req.params.wordId)) return res.status(404).json({ error: '单词不存在' });
   const entry = upsertWordbook(req.params.wordId, status);
+  pushHistory({
+    type: 'wordbook',
+    action: 'update',
+    wordId: req.params.wordId,
+    word: getWord(req.params.wordId).word,
+    status: entry.status
+  });
   res.json(joinWord(entry));
 });
 
 router.delete('/:wordId', (req, res) => {
+  const word = getWord(req.params.wordId);
   const existed = removeWordbook(req.params.wordId);
   if (!existed) return res.status(404).json({ error: '记录不存在' });
+  if (word) {
+    pushHistory({ type: 'wordbook', action: 'remove', wordId: word.id, word: word.word, status: null });
+  }
   res.json({ ok: true });
 });
 

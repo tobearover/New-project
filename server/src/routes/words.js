@@ -14,7 +14,11 @@ function summary(w) {
     phoneticUS: w.phoneticUS,
     level: w.level,
     levelLabel: LEVEL_LABELS[w.level] || w.level,
-    exams: w.exams
+    exams: w.exams,
+    // 供单词列表手风琴展开直接展示（避免每条都发起详情请求）
+    examples: (w.examples || []).slice(0, 2),
+    collocations: (w.collocations || []).slice(0, 4),
+    synonyms: (w.synonyms || []).slice(0, 4)
   };
 }
 

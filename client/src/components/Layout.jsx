@@ -7,7 +7,8 @@ const NAV = [
   { to: '/words', label: '单词', icon: '📖' },
   { to: '/scan', label: '识别', icon: '📷' },
   { to: '/wordbook', label: '生词本', icon: '🗂️' },
-  { to: '/quiz', label: '测验', icon: '✏️' }
+  { to: '/quiz', label: '测验', icon: '✏️' },
+  { to: '/history', label: '历史', icon: '🕘' }
 ];
 
 function DesktopNav() {
@@ -59,7 +60,7 @@ function MobileNav() {
   if (location.pathname.startsWith('/words/')) return null; // 详情页不显示底部栏，避免遮挡
   return (
     <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">
-      <div className="grid grid-cols-5">
+      <div className="grid grid-cols-6">
         {NAV.map((item) => (
           <NavLink
             key={item.to}

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { Volume2 } from 'lucide-react';
 import { api } from '../api';
 import { useApp } from '../store';
 import EmptyState from '../components/EmptyState';
@@ -7,8 +8,7 @@ import EmptyState from '../components/EmptyState';
 const TYPES = [
   ['meaning', '词义匹配', '看单词选释义', '🔤'],
   ['spelling', '单词拼写', '看释义拼单词', '⌨️'],
-  ['listening', '听力辨词', '听发音选释义', '🎧'],
-  ['exam', '真题模拟', '真题句子选词', '📝']
+  ['listening', '听力辨词', '听发音选释义', '🎧']
 ];
 
 export default function Quiz() {
@@ -25,6 +25,7 @@ export default function Quiz() {
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [accent, setAccent] = useState('US'); // 发音口音：US / UK
   const playedRef = useRef(false);
 
   useEffect(() => {
@@ -56,7 +57,7 @@ export default function Quiz() {
     if (!('speechSynthesis' in window)) return;
     window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(word);
-    u.lang = 'en-US';
+    u.lang = accent === 'UK' ? 'en-GB' : 'en-US';
     u.rate = 0.85;
     window.speechSynthesis.speak(u);
   };
@@ -208,19 +209,8 @@ export default function Quiz() {
         </div>
 
         <div className="min-h-[80px] text-center">
-          {quiz.type === 'spelling' || quiz.type === 'exam' ? (
-            <div>
-              <p className="text-base font-medium leading-relaxed text-slate-800">{question.prompt}</p>
-              {quiz.type === 'exam' && (
-                <button
-                  onClick={() => speak(question.word)}
-                  className="mt-2 text-xs text-brand-600 hover:underline"
-                  title="播放该词发音"
-                >
-                  🔊 播放 {question.word} 发音
-                </button>
-              )}
-            </div>
+          {quiz.type === 'spelling' ? (
+            <p className="text-base font-medium leading-relaxed text-slate-800">{question.prompt}</p>
           ) : (
             <>
               <button
@@ -238,6 +228,38 @@ export default function Quiz() {
 
         {quiz.type === 'spelling' ? (
           <div className="mt-6 space-y-3">
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <button
+                onClick={() => speak(question.word)}
+                disabled={checked}
+                className="flex items-center gap-2 rounded-xl bg-brand-50 px-4 py-2 text-sm font-medium text-brand-700 ring-1 ring-brand-100 transition hover:bg-brand-100 disabled:opacity-50"
+                title="播放该词发音（答题必要辅助）"
+              >
+                <Volume2 className="h-4 w-4" />
+                播放发音
+              </button>
+              <div className="flex overflow-hidden rounded-lg text-xs ring-1 ring-slate-300">
+                <button
+                  type="button"
+                  onClick={() => setAccent('US')}
+                  className={`px-2.5 py-1.5 transition ${
+                    accent === 'US' ? 'bg-brand-600 text-white' : 'bg-white text-slate-500 hover:bg-slate-50'
+                  }`}
+                >
+                  美音
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAccent('UK')}
+                  className={`px-2.5 py-1.5 transition ${
+                    accent === 'UK' ? 'bg-brand-600 text-white' : 'bg-white text-slate-500 hover:bg-slate-50'
+                  }`}
+                >
+                  英音
+                </button>
+              </div>
+            </div>
+            <p className="text-center text-xs text-slate-400">先听发音，再根据释义拼写单词</p>
             <input
               className="input text-center text-lg"
               placeholder="输入英文单词"

@@ -9,6 +9,7 @@ import Scan from './pages/Scan';
 import Wordbook from './pages/Wordbook';
 import Review from './pages/Review';
 import Quiz from './pages/Quiz';
+import History from './pages/History';
 
 export default function App() {
   return (
@@ -22,6 +23,7 @@ export default function App() {
         <Route path="/wordbook" element={<Wordbook />} />
         <Route path="/review" element={<Review />} />
         <Route path="/quiz" element={<Quiz />} />
+        <Route path="/history" element={<History />} />
         <Route path="*" element={<div className="py-16 text-center text-slate-500">页面不存在</div>} />
       </Routes>
     </Layout>

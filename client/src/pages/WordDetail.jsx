@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { Volume2, VolumeX } from 'lucide-react';
 import { api } from '../api';
+import { useSpeech, englishPart } from '../utils/speech';
 import LevelBadge from '../components/LevelBadge';
 import SpeakButton from '../components/SpeakButton';
 import StatusButtons from '../components/StatusButtons';
@@ -13,6 +15,47 @@ function Section({ title, children }) {
       <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-slate-400">{title}</h2>
       {children}
     </section>
+  );
+}
+
+/** 例句朗读：整句按钮 + 逐词点击朗读 */
+function SpeakableSentence({ sentence }) {
+  const { speaking, speak } = useSpeech();
+  const words = sentence.split(/(\s+)/);
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <p className="text-sm font-medium leading-relaxed text-slate-800">
+        {words.map((w, i) =>
+          /\s/.test(w) ? (
+            <span key={i}>{w}</span>
+          ) : (
+            <button
+              key={i}
+              type="button"
+              onClick={() => speak(w, 'en-US')}
+              className={`rounded px-0.5 transition hover:bg-brand-100 hover:text-brand-700 ${
+                speaking === w ? 'bg-brand-100 text-brand-700 underline' : ''
+              }`}
+              title="点击朗读该单词"
+            >
+              {w}
+            </button>
+          )
+        )}
+      </p>
+      <button
+        type="button"
+        onClick={() => speak(sentence, 'en-US')}
+        title={speaking === sentence ? '停止播放' : '朗读整句'}
+        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ring-1 transition ${
+          speaking === sentence
+            ? 'bg-brand-100 text-brand-700 ring-brand-300'
+            : 'bg-brand-50 text-brand-600 ring-brand-100 hover:bg-brand-100'
+        }`}
+      >
+        {speaking === sentence ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
+      </button>
+    </div>
   );
 }
 
@@ -91,7 +134,7 @@ export default function WordDetail() {
           <div className="space-y-3">
             {w.examples.map((ex, i) => (
               <div key={i} className="rounded-xl bg-slate-50 p-4">
-                <p className="text-sm font-medium text-slate-800">{ex.en}</p>
+                <SpeakableSentence sentence={ex.en} />
                 <p className="mt-1 text-sm text-slate-500">{ex.zh}</p>
               </div>
             ))}
@@ -127,7 +170,10 @@ export default function WordDetail() {
           <Section title="常见搭配">
             <div className="flex flex-wrap gap-1.5">
               {w.collocations.map((c) => (
-                <span key={c} className="chip bg-blue-50 text-blue-700 ring-1 ring-blue-100">{c}</span>
+                <span key={c} className="chip bg-blue-50 text-blue-700 ring-1 ring-blue-100">
+                  {c}
+                  <SpeakButton text={englishPart(c)} accent="US" size="sm" title="朗读该搭配" />
+                </span>
               ))}
             </div>
           </Section>
@@ -150,7 +196,9 @@ export default function WordDetail() {
             {w.realExam.map((r, i) => (
               <div key={i} className="rounded-xl bg-amber-50/60 p-4 ring-1 ring-amber-100">
                 <div className="text-xs font-semibold text-amber-600">{r.source}</div>
-                <p className="mt-1 text-sm font-medium text-slate-800">{r.sentence}</p>
+                <div className="mt-1">
+                  <SpeakableSentence sentence={r.sentence} />
+                </div>
                 {r.note && <p className="mt-1 text-xs text-slate-500">{r.note}</p>}
               </div>
             ))}
@@ -179,7 +227,10 @@ export default function WordDetail() {
           <div className="space-y-2">
             {w.relatedPhrases.map((p) => (
               <div key={p.id} className="flex items-baseline justify-between gap-3 rounded-xl bg-slate-50 px-4 py-3">
-                <span className="text-sm font-semibold text-slate-800">{p.phrase}</span>
+                <span className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
+                  {p.phrase}
+                  <SpeakButton text={p.phrase} accent="US" size="sm" title="朗读该词组" />
+                </span>
                 <span className="text-sm text-slate-500">{p.meaning}</span>
               </div>
             ))}

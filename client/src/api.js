@@ -27,6 +27,11 @@ export const api = {
   recognitionHistory: (limit = 20) => request(`/recognition/history?limit=${limit}`),
   recognitionHistoryItem: (id) => request(`/recognition/history/${encodeURIComponent(id)}`),
   recognitionHistoryClear: () => request('/recognition/history', { method: 'DELETE' }),
+  history: (params = {}) => request(`/history?${new URLSearchParams(params)}`),
+  historyItem: (id) => request(`/history/${encodeURIComponent(id)}`),
+  historyDelete: (id) => request(`/history/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  historyDeleteBatch: (ids) =>
+    request('/history', { method: 'DELETE', body: { ids } }),
   wordbook: (params = {}) => request(`/wordbook?${new URLSearchParams(params)}`),
   wordbookStats: () => request('/wordbook/stats'),
   wordbookAdd: (wordId, status = 'new') =>

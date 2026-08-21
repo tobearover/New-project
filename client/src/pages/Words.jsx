@@ -1,8 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { ChevronDown } from 'lucide-react';
 import { api } from '../api';
 import { useApp } from '../store';
-import WordListCard from '../components/WordListCard';
+import LevelBadge from '../components/LevelBadge';
+import SpeakButton from '../components/SpeakButton';
+import StatusButtons from '../components/StatusButtons';
 import EmptyState from '../components/EmptyState';
 
 const LEVELS = [
@@ -15,6 +18,14 @@ const LEVELS = [
 
 const PAGE_SIZE = 50;
 
+// 高频/重点词汇的视觉强调样式（手风琴条）
+const ACCENT = {
+  high_frequency: 'border-l-4 border-l-red-400 bg-gradient-to-r from-red-50/70 to-transparent',
+  key: 'border-l-4 border-l-blue-400 bg-gradient-to-r from-blue-50/70 to-transparent',
+  frequent: '',
+  cognition: ''
+};
+
 export default function Words() {
   const { syllabusId } = useApp();
   const [syllabi, setSyllabi] = useState([]);
@@ -23,6 +34,7 @@ export default function Words() {
   const [q, setQ] = useState('');
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [openId, setOpenId] = useState(null); // 手风琴：同一时间只展开一条
 
   useEffect(() => {
     api.syllabi().then(setSyllabi).catch(() => {});
@@ -32,6 +44,7 @@ export default function Words() {
 
   useEffect(() => {
     setLoading(true);
+    setOpenId(null);
     const timer = setTimeout(() => {
       api
         .words({ syllabus: syllabusId, level, q, limit: PAGE_SIZE, offset })
@@ -44,10 +57,7 @@ export default function Words() {
     return () => clearTimeout(timer);
   }, [syllabusId, level, q, offset]);
 
-  const levelCounts = useMemo(() => {
-    const stats = current?.stats?.levels || {};
-    return stats;
-  }, [current]);
+  const levelCounts = useMemo(() => current?.stats?.levels || {}, [current]);
 
   const resetPage = (fn) => {
     setOffset(0);
@@ -109,10 +119,119 @@ export default function Words() {
         />
       ) : (
         <>
-          <div className="space-y-2.5">
-            {data.items.map((item) => (
-              <WordListCard key={item.id} item={item} />
-            ))}
+          <div className="space-y-2">
+            {data.items.map((item) => {
+              const open = openId === item.id;
+              const emphasized = item.level === 'high_frequency' || item.level === 'key';
+              return (
+                <div
+                  key={item.id}
+                  className={`card overflow-hidden transition ${
+                    emphasized ? ACCENT[item.level] : ''
+                  } ${open ? 'shadow-md ring-1 ring-brand-300' : ''}`}
+                >
+                  {/* 手风琴头部：点击展开/收起；发音与标记按钮为兄弟节点，避免嵌套按钮 */}
+                  <div className="flex items-center gap-3 px-4 py-3">
+                    <button
+                      type="button"
+                      onClick={() => setOpenId(open ? null : item.id)}
+                      className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                      aria-expanded={open}
+                    >
+                      <ChevronDown
+                        className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${
+                          open ? 'rotate-180' : ''
+                        }`}
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="flex flex-wrap items-center gap-2">
+                          <span className="truncate text-base font-semibold text-slate-900">{item.word}</span>
+                          <LevelBadge level={item.level} />
+                          {emphasized && (
+                            <span className="chip bg-red-50 text-red-600 ring-1 ring-red-200">重点掌握</span>
+                          )}
+                          {item.status && (
+                            <span className="chip bg-brand-50 text-brand-600 ring-1 ring-brand-100">
+                              {item.status === 'new' ? '生词本' : item.status === 'mastered' ? '已掌握' : '收藏'}
+                            </span>
+                          )}
+                        </span>
+                        <span className="mt-0.5 block truncate text-sm text-slate-500">
+                          {item.phoneticUS || item.phoneticUK || ''} {item.pos}{' '}
+                          {item.meanings.join('；')}
+                        </span>
+                      </span>
+                    </button>
+                    <SpeakButton word={item.word} accent="US" size="sm" />
+                    <StatusButtons wordId={item.id} initialStatus={item.status} size="sm" />
+                  </div>
+
+                  {/* 手风琴内容：详细释义、例句、词组等 */}
+                  {open && (
+                    <div className="border-t border-slate-100 bg-slate-50/60 px-4 py-4">
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div>
+                          <div className="mb-1.5 text-xs font-semibold text-slate-400">释义</div>
+                          <div className="space-y-1">
+                            {item.meanings.map((m, i) => (
+                              <div key={i} className="flex items-baseline gap-2 text-sm text-slate-700">
+                                <span className="text-brand-500">▸</span>
+                                <span>{m}</span>
+                              </div>
+                            ))}
+                          </div>
+                          {item.synonyms.length > 0 && (
+                            <div className="mt-3">
+                              <div className="mb-1.5 text-xs font-semibold text-slate-400">同义词</div>
+                              <div className="flex flex-wrap gap-1.5">
+                                {item.synonyms.map((s) => (
+                                  <span key={s} className="chip bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100">
+                                    {s}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          {item.examples.length > 0 && (
+                            <div className="mb-3">
+                              <div className="mb-1.5 text-xs font-semibold text-slate-400">例句</div>
+                              {item.examples.map((ex, i) => (
+                                <div key={i} className="mb-2 rounded-lg bg-white p-2.5 ring-1 ring-slate-100">
+                                  <div className="text-sm text-slate-800">{ex.en}</div>
+                                  <div className="mt-0.5 text-xs text-slate-500">{ex.zh}</div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {item.collocations.length > 0 && (
+                            <div>
+                              <div className="mb-1.5 text-xs font-semibold text-slate-400">常用搭配</div>
+                              <div className="flex flex-wrap gap-1.5">
+                                {item.collocations.map((c) => (
+                                  <span key={c} className="chip bg-blue-50 text-blue-700 ring-1 ring-blue-100">
+                                    {c}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="mt-3 border-t border-slate-100 pt-3">
+                        <Link
+                          to={`/words/${encodeURIComponent(item.id)}`}
+                          className="text-sm font-medium text-brand-600 hover:underline"
+                        >
+                          查看完整解析（考点 / 真题 / 记忆技巧）→
+                        </Link>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
 
           <div className="flex items-center justify-center gap-3 pt-2">

@@ -5,6 +5,7 @@ const { ensureDb } = require('./db');
 const syllabiRouter = require('./routes/syllabi');
 const wordsRouter = require('./routes/words');
 const recognitionRouter = require('./routes/recognition');
+const historyRouter = require('./routes/history');
 const wordbookRouter = require('./routes/wordbook');
 const reviewRouter = require('./routes/review');
 const quizRouter = require('./routes/quiz');
@@ -31,6 +32,7 @@ app.get('/api/health', (req, res) => {
 app.use('/api/syllabi', syllabiRouter);
 app.use('/api/words', wordsRouter);
 app.use('/api/recognition', recognitionRouter);
+app.use('/api/history', historyRouter);
 app.use('/api/wordbook', wordbookRouter);
 app.use('/api/review', reviewRouter);
 app.use('/api/quiz', quizRouter);

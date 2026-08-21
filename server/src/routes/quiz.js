@@ -1,5 +1,5 @@
 const express = require('express');
-const { getDb, getWord, upsertWordbook } = require('../db');
+const { getDb, getWord, upsertWordbook, pushHistory } = require('../db');
 
 const router = express.Router();
 
@@ -41,35 +41,6 @@ function buildQuestion(type, word, pool) {
     };
   }
 
-  if (type === 'exam' && word.realExam && word.realExam.length) {
-    const { sentence } = word.realExam[0];
-    // 真题例句中的单词可能是词形变化（reduced/driving），按最长优先匹配替换为空格
-    const variants = [
-      `${word.word}ing`,
-      `${word.word}ed`,
-      `${word.word}es`,
-      `${word.word}s`,
-      `${word.word}d`,
-      word.word
-    ];
-    const blanked = sentence.replace(
-      new RegExp(`\\b(?:${variants.join('|')})\\b`, 'i'),
-      '______'
-    );
-    const distractors = pickDistractors(pool, word, 3);
-    const options = shuffle([
-      { id: word.id, text: word.word, correct: true },
-      ...distractors.map((w) => ({ id: w.id, text: w.word, correct: false }))
-    ]);
-    return {
-      ...base,
-      prompt: blanked,
-      audio: false,
-      options,
-      answer: word.word
-    };
-  }
-
   // meaning / listening 共用：给词选义 / 听词选义
   const distractors = pickDistractors(pool, word, 3);
   const options = shuffle([
@@ -85,14 +56,14 @@ function buildQuestion(type, word, pool) {
   };
 }
 
-// 生成测验：?type=meaning|spelling|listening|exam&syllabus=cet4&count=8
+// 生成测验：?type=meaning|spelling|listening&syllabus=cet4&count=8
 router.get('/', (req, res) => {
   const db = getDb();
   const type = req.query.type || 'meaning';
   const syllabus = req.query.syllabus || 'cet4';
   const count = Math.min(parseInt(req.query.count, 10) || 8, 20);
 
-  if (!['meaning', 'spelling', 'listening', 'exam'].includes(type)) {
+  if (!['meaning', 'spelling', 'listening'].includes(type)) {
     return res.status(400).json({ error: 'type 无效' });
   }
 
@@ -100,7 +71,6 @@ router.get('/', (req, res) => {
   let pool = db.words.filter(
     (w) => w.exams.includes(syllabus) && w.meanings && w.meanings.length > 0
   );
-  if (type === 'exam') pool = pool.filter((w) => w.realExam && w.realExam.length);
   if (pool.length < 4) return res.status(404).json({ error: '该考纲词库不足，无法出题' });
 
   const levelRank = { high_frequency: 0, frequent: 1, key: 2, cognition: 3 };
@@ -119,11 +89,13 @@ router.post('/answer', (req, res) => {
   const db = getDb();
   if (!wordId || !getWord(wordId)) return res.status(404).json({ error: '单词不存在' });
 
-  db.quizHistory.push({
+  const word = getWord(wordId);
+  pushHistory({
+    type: 'quiz',
     wordId,
+    word: word ? word.word : wordId,
     questionType,
-    correct: !!correct,
-    answeredAt: new Date().toISOString()
+    correct: !!correct
   });
 
   let wrongAdded = false;

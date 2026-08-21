@@ -1,7 +1,7 @@
 const express = require('express');
 const multer = require('multer');
 const crypto = require('crypto');
-const { getDb, save } = require('../db');
+const { getDb, save, pushHistory } = require('../db');
 const { recognizeImage, demoResult } = require('../services/ocr');
 const { extractAndMatch } = require('../services/extractor');
 
@@ -30,14 +30,23 @@ function dedupKey(text, syllabus) {
   return sha256(`${normalizeForDedup(text)}|${syllabus || ''}`);
 }
 
-/** 清理策略：删除超出时间窗口的旧记录，并限制总条数上限 */
+/** 清理策略：删除超出时间窗口的旧识别记录，并限制识别类记录上限 */
 function purgeHistory(dbRef) {
   const cutoff = Date.now() - DEDUP_WINDOW_MIN * 60000;
-  dbRef.recognitionHistory = (dbRef.recognitionHistory || []).filter(
-    (r) => new Date(r.createdAt).getTime() >= cutoff
+  dbRef.history = (dbRef.history || []).filter(
+    (r) => r.type !== 'recognition' || new Date(r.createdAt).getTime() >= cutoff
   );
-  if (dbRef.recognitionHistory.length > MAX_HISTORY) {
-    dbRef.recognitionHistory = dbRef.recognitionHistory.slice(-MAX_HISTORY);
+  const recognitions = dbRef.history.filter((r) => r.type === 'recognition');
+  if (recognitions.length > MAX_HISTORY) {
+    const excess = recognitions.length - MAX_HISTORY;
+    let removed = 0;
+    dbRef.history = dbRef.history.filter((r) => {
+      if (r.type === 'recognition' && removed < excess) {
+        removed += 1;
+        return false;
+      }
+      return true;
+    });
   }
 }
 
@@ -45,8 +54,11 @@ function purgeHistory(dbRef) {
 function findDuplicate(dbRef, key) {
   const cutoff = Date.now() - DEDUP_WINDOW_MIN * 60000;
   return (
-    (dbRef.recognitionHistory || []).find(
-      (r) => r.key === key && new Date(r.createdAt).getTime() >= cutoff
+    (dbRef.history || []).find(
+      (r) =>
+        r.type === 'recognition' &&
+        r.key === key &&
+        new Date(r.createdAt).getTime() >= cutoff
     ) || null
   );
 }
@@ -129,19 +141,17 @@ router.post('/', upload.single('image'), async (req, res) => {
   });
 
   // 记录本次识别（同一内容强制重识别时会新增记录，最新记录用于后续去重）
-  const record = {
-    id: crypto.randomUUID(),
+  const record = pushHistory({
+    type: 'recognition',
     key: textKey,
     syllabus: syllabus || null,
     engine: ocrResult.engine,
     fallback: !!ocrResult.fallback,
-    createdAt: new Date().toISOString(),
     matchedCount: matched.stats.matchedWords,
     phraseCount: matched.stats.matchedPhrases,
     matchedWords: Object.values(matched.groups).flat().map((w) => w.word),
     rawText: ocrResult.text // 保存完整原文，历史详情据此重新提取结果
-  };
-  db.recognitionHistory.push(record);
+  });
   save();
 
   res.json({
@@ -163,8 +173,12 @@ router.get('/history', (req, res) => {
   const db = getDb();
   purgeHistory(db);
   const limit = Math.min(parseInt(req.query.limit, 10) || 20, MAX_HISTORY);
-  const items = db.recognitionHistory.slice(-limit).reverse().map(toSummary);
-  res.json({ total: db.recognitionHistory.length, windowMinutes: DEDUP_WINDOW_MIN, items });
+  const recognitions = db.history
+    .filter((r) => r.type === 'recognition')
+    .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''))
+    .reverse();
+  const items = recognitions.slice(0, limit).map(toSummary);
+  res.json({ total: recognitions.length, windowMinutes: DEDUP_WINDOW_MIN, items });
 });
 
 /**
@@ -173,7 +187,9 @@ router.get('/history', (req, res) => {
  */
 router.get('/history/:id', (req, res) => {
   const db = getDb();
-  const record = (db.recognitionHistory || []).find((r) => r.id === req.params.id);
+  const record = (db.history || []).find(
+    (r) => r.type === 'recognition' && r.id === req.params.id
+  );
   if (!record) return res.status(404).json({ error: '识别记录不存在或已过期清理' });
 
   const matched = extractAndMatch({
@@ -200,7 +216,7 @@ router.get('/history/:id', (req, res) => {
 /** 清空识别历史 */
 router.delete('/history', (req, res) => {
   const db = getDb();
-  db.recognitionHistory = [];
+  db.history = (db.history || []).filter((r) => r.type !== 'recognition');
   save();
   res.json({ ok: true });
 });
