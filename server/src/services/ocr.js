@@ -4,8 +4,8 @@
  * 环境变量：
  *   ALIYUN_ACCESS_KEY_ID / ALIYUN_AK        阿里云 AccessKeyId
  *   ALIYUN_ACCESS_KEY_SECRET / ALIYUN_SK    阿里云 AccessKeySecret
- *   ALIYUN_OCR_REGION                        区域（默认 cn-shanghai）
- *   ALIYUN_OCR_ENDPOINT                      自定义 endpoint（可选，默认 ocr.<region>.aliyuncs.com）
+ *   ALIYUN_OCR_REGION                        区域（默认 cn-hangzhou）
+ *   ALIYUN_OCR_ENDPOINT                      自定义 endpoint（可选，默认 ocr-api.<region>.aliyuncs.com）
  *
  * 失败策略：抛出具可读信息的 Error，由路由层返回错误与重试提示，
  * 禁止静默回退到演示文本。

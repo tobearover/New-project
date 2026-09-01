@@ -114,7 +114,7 @@ npm run dev           # 同时启动后端(:4000)与前端(:5173)
 打开 http://localhost:5173。
 
 > 说明：图片识别使用阿里云 OCR，需在服务器配置 `ALIYUN_ACCESS_KEY_ID` / `ALIYUN_ACCESS_KEY_SECRET`
-> （可选 `ALIYUN_OCR_REGION`，默认 cn-shanghai）。识别失败会返回可读错误与重试提示，不会静默回退。
+> （可选 `ALIYUN_OCR_REGION`，默认 cn-hangzhou）。识别失败会返回可读错误与重试提示，不会静默回退。
 > `POST /api/recognition` 支持 `mockText` 字段直接传入题目文本用于测试。
 
 ## 目录结构
