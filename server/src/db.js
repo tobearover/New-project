@@ -10,8 +10,6 @@ const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
 const DB_PATH = path.join(DATA_DIR, 'db.json');
 
 const DB_VERSION = 4;
-// 统一历史记录上限（超出后丢弃最旧记录，避免无界增长）
-const HISTORY_MAX = 5000;
 
 let db = null;
 
@@ -152,7 +150,6 @@ function load() {
   for (const token of Object.keys(db.sessions)) {
     if (new Date(db.sessions[token].expiresAt).getTime() < now) delete db.sessions[token];
   }
-  db.history = db.history.slice(-HISTORY_MAX);
   save();
   return db;
 }
@@ -275,9 +272,6 @@ function pushHistory(entry) {
     createdAt: new Date().toISOString(),
     ...entry
   });
-  if (dbRef.history.length > HISTORY_MAX) {
-    dbRef.history = dbRef.history.slice(-HISTORY_MAX);
-  }
   return dbRef.history[dbRef.history.length - 1];
 }
 
@@ -293,7 +287,6 @@ module.exports = {
   DATA_DIR,
   UPLOAD_DIR,
   DB_PATH,
-  HISTORY_MAX,
   ensureDb,
   getDb,
   save,

@@ -62,10 +62,12 @@ export default function Scan() {
   const [history, setHistory] = useState([]);
   const [historyWindow, setHistoryWindow] = useState(30);
   const [error, setError] = useState('');
+  const [ocrFailed, setOcrFailed] = useState(false); // OCR 失败标记：展示错误与重试
   const [syllabi, setSyllabi] = useState([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [typeFilter, setTypeFilter] = useState(loadFilter);
   const [showPhrases, setShowPhrases] = useState(() => localStorage.getItem(PHRASES_KEY) !== '0');
+  const [collapsedGroups, setCollapsedGroups] = useState(() => new Set());
 
   const videoRef = useRef(null);
   const fileRef = useRef(null);
@@ -116,6 +118,7 @@ export default function Scan() {
     if (busy) return;
     setBusy(true);
     setError('');
+    setOcrFailed(false);
     setDuplicate(null);
     try {
       const data = await api.recognitionHistoryItem(item.id);
@@ -126,6 +129,7 @@ export default function Scan() {
       }, 80);
     } catch (err) {
       setError(err.message);
+      setOcrFailed(false);
     } finally {
       setBusy(false);
     }
@@ -187,6 +191,7 @@ export default function Scan() {
   const submit = async (force = false) => {
     setBusy(true);
     setError('');
+    setOcrFailed(false);
     setResult(null);
     setDuplicate(null);
     setViewingHistory(null);
@@ -210,6 +215,7 @@ export default function Scan() {
       }
     } catch (err) {
       setError(err.message);
+      setOcrFailed(!!err.retryable);
     } finally {
       setBusy(false);
     }
@@ -224,8 +230,17 @@ export default function Scan() {
   const enabledTypeCount = TYPE_OPTIONS.filter((t) => typeFilter[t.key]).length;
 
   const engineLabel = (engine, fallback) =>
-    (engine === 'tesseract' ? 'Tesseract OCR' : engine === 'demo' ? '演示文本' : 'OCR') +
+    (engine === 'aliyun' ? '阿里云OCR' : engine === 'demo' ? '演示文本' : 'OCR') +
     (fallback ? '（已回退）' : '');
+
+  const toggleGroup = (level) => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(level)) next.delete(level);
+      else next.add(level);
+      return next;
+    });
+  };
 
   return (
     <div className="space-y-5">
@@ -417,10 +432,19 @@ export default function Scan() {
             <ScanLine className="h-4 w-4" />
             {busy ? '识别中，请稍候…' : '开始识别'}
           </button>
-          {error && <p className="mt-3 text-sm text-red-500">{error}</p>}
+          {error && (
+            <div className="mt-3 space-y-2">
+              <p className="text-sm text-red-500">{error}</p>
+              {ocrFailed && (
+                <button onClick={() => submit()} disabled={busy} className="btn-secondary">
+                  <ScanLine className="h-4 w-4" /> 重试识别
+                </button>
+              )}
+            </div>
+          )}
           {mode !== 'text' && (
             <p className="mt-3 text-xs text-slate-400">
-              提示：OCR 首次识别需要下载英文语言包（约 15MB）。若 OCR 不可用，服务会自动回退到演示文本，不影响体验。
+              提示：图片识别使用阿里云 OCR；识别失败会显示原因，可直接重试。
             </p>
           )}
         </div>
@@ -509,32 +533,47 @@ export default function Scan() {
               ) : (
                 visibleGroups.map((group) => (
                   <div key={group.level} className="card overflow-hidden">
-                    <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/60 px-4 py-2.5">
+                    <button
+                      type="button"
+                      onClick={() => toggleGroup(group.level)}
+                      className="flex w-full items-center justify-between border-b border-slate-100 bg-slate-50/60 px-4 py-2.5 text-left"
+                      aria-expanded={!collapsedGroups.has(group.level)}
+                    >
                       <span className="flex items-center gap-2 text-sm font-semibold text-slate-800">
                         <LevelBadge level={group.level} />
                         {LEVEL_LABELS[group.level]}
                       </span>
-                      <span className="text-xs text-slate-400">{group.words.length} 个</span>
-                    </div>
-                    <div className="divide-y divide-slate-100">
-                      {group.words.map((w) => (
-                        <div key={w.id} className="flex items-center gap-3 px-4 py-3">
-                          <div className="min-w-0 flex-1">
-                            <Link
-                              to={`/words/${encodeURIComponent(w.id)}`}
-                              className="font-semibold text-brand-700 hover:underline"
-                            >
-                              {w.word}
-                            </Link>
-                            <div className="truncate text-xs text-slate-500">
-                              {w.pos} {w.meanings.join('；')}
+                      <span className="flex items-center gap-2 text-xs text-slate-400">
+                        {group.words.length} 个
+                        <ChevronDown
+                          className={`h-3.5 w-3.5 transition-transform ${
+                            collapsedGroups.has(group.level) ? '' : 'rotate-180'
+                          }`}
+                        />
+                      </span>
+                    </button>
+                    {!collapsedGroups.has(group.level) && (
+                      <div className="divide-y divide-slate-100">
+                        {group.words.map((w) => (
+                          <div key={w.id} className="flex items-center gap-3 px-4 py-3">
+                            <div className="min-w-0 flex-1">
+                              <Link
+                                to={`/words/${encodeURIComponent(w.id)}`}
+                                className="font-semibold text-brand-700 hover:underline"
+                                title="查看单词详情"
+                              >
+                                {w.word}
+                              </Link>
+                              <div className="truncate text-xs text-slate-500">
+                                {w.pos} {w.meanings.join('；')}
+                              </div>
                             </div>
+                            <SpeakButton word={w.word} accent="US" size="sm" />
+                            <StatusButtons wordId={w.id} initialStatus={w.status} size="sm" />
                           </div>
-                          <SpeakButton word={w.word} accent="US" size="sm" />
-                          <StatusButtons wordId={w.id} initialStatus={w.status} size="sm" />
-                        </div>
-                      ))}
-                    </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))
               )}

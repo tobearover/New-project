@@ -25,7 +25,11 @@ async function request(path, options = {}) {
     localStorage.removeItem(USER_KEY);
   }
   if (!res.ok) {
-    throw new Error((data && data.error) || `请求失败（${res.status}）`);
+    const err = new Error((data && data.error) || `请求失败（${res.status}）`);
+    err.status = res.status;
+    err.retryable = !!(data && data.retryable);
+    err.ocr = !!(data && data.ocr);
+    throw err;
   }
   return data;
 }

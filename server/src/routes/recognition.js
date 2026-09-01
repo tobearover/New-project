@@ -2,7 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const crypto = require('crypto');
 const { getDb, save, pushHistory } = require('../db');
-const { recognizeImage, demoResult } = require('../services/ocr');
+const { recognizeImage } = require('../services/ocr');
 const { extractAndMatch } = require('../services/extractor');
 
 const router = express.Router();
@@ -13,8 +13,8 @@ const upload = multer({
 
 // 重复识别检测时间窗口（分钟），可通过环境变量覆盖
 const DEDUP_WINDOW_MIN = parseInt(process.env.RECOGNITION_DEDUP_WINDOW_MIN || '30', 10);
-// 历史记录上限，超出后仅保留最新记录
-const MAX_HISTORY = parseInt(process.env.RECOGNITION_HISTORY_MAX || '100', 10);
+// 历史列表单次返回上限（仅分页限制，不做存储清理；历史永久保留直至用户手动删除）
+const LIST_LIMIT = 50;
 
 function sha256(input) {
   return crypto.createHash('sha256').update(input).digest('hex');
@@ -28,26 +28,6 @@ function normalizeForDedup(text) {
 /** 识别内容的去重键 = hash(规范化文本 + 考纲)，同一内容换考纲视为不同处理 */
 function dedupKey(text, syllabus) {
   return sha256(`${normalizeForDedup(text)}|${syllabus || ''}`);
-}
-
-/** 清理策略：删除超出时间窗口的旧识别记录，并按用户限制识别类记录上限 */
-function purgeHistory(dbRef, userId) {
-  const cutoff = Date.now() - DEDUP_WINDOW_MIN * 60000;
-  dbRef.history = (dbRef.history || []).filter(
-    (r) => r.type !== 'recognition' || new Date(r.createdAt).getTime() >= cutoff
-  );
-  const recognitions = dbRef.history.filter((r) => r.type === 'recognition' && r.userId === userId);
-  if (recognitions.length > MAX_HISTORY) {
-    const excess = recognitions.length - MAX_HISTORY;
-    let removed = 0;
-    dbRef.history = dbRef.history.filter((r) => {
-      if (r.type === 'recognition' && r.userId === userId && removed < excess) {
-        removed += 1;
-        return false;
-      }
-      return true;
-    });
-  }
 }
 
 /** 在时间窗口内查找同内容的识别记录 */
@@ -102,8 +82,6 @@ router.post('/', upload.single('image'), async (req, res) => {
   const force = req.body && (req.body.force === 'true' || req.body.force === '1');
   const db = getDb();
 
-  purgeHistory(db, req.user.id);
-
   let ocrResult = null;
   let imageFastKey = null;
 
@@ -116,19 +94,24 @@ router.post('/', upload.single('image'), async (req, res) => {
       const dup = findDuplicate(db, imageFastKey, req.user.id);
       if (dup) return res.json(duplicateResponse(dup));
     }
-    ocrResult = await recognizeImage(req.file.buffer);
-    if (!ocrResult.text) {
-      const fallback = demoResult();
-      ocrResult = { ...fallback, fallback: true, reason: ocrResult.error || '识别失败' };
+    try {
+      ocrResult = await recognizeImage(req.file.buffer);
+    } catch (err) {
+      // 识别失败：返回可读错误与重试标记，禁止静默回退演示文本
+      return res.status(502).json({
+        error: err.message || '图片识别失败',
+        retryable: true,
+        ocr: { engine: 'aliyun' }
+      });
     }
   } else {
     return res.status(400).json({ error: '请上传图片或提供 mockText' });
   }
 
-  // 文本哈希去重：不同图片但 OCR 结果相同（或同一段 mockText）也能被识别为重复
-  // 注意：OCR 失败回退的演示文本不代表真实内容，跳过文本级去重，仅保留图片字节级去重
+  // 文本哈希去重：不同图片但 OCR 结果相同（或同一段 mockText）也能被识别为重复；
+  // 命中仅作重复提示，不删除任何存储记录
   const textKey = dedupKey(ocrResult.text, syllabus);
-  if (!force && !ocrResult.fallback) {
+  if (!force) {
     const dup = findDuplicate(db, textKey, req.user.id);
     if (dup) return res.json(duplicateResponse(dup));
   }
@@ -173,8 +156,7 @@ router.post('/', upload.single('image'), async (req, res) => {
 /** 识别历史列表（默认最近 20 条） */
 router.get('/history', (req, res) => {
   const db = getDb();
-  purgeHistory(db, req.user.id);
-  const limit = Math.min(parseInt(req.query.limit, 10) || 20, MAX_HISTORY);
+  const limit = Math.min(parseInt(req.query.limit, 10) || 20, LIST_LIMIT);
   const recognitions = db.history
     .filter((r) => r.type === 'recognition' && r.userId === req.user.id)
     .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''))
@@ -192,7 +174,7 @@ router.get('/history/:id', (req, res) => {
   const record = (db.history || []).find(
     (r) => r.type === 'recognition' && r.id === req.params.id && r.userId === req.user.id
   );
-  if (!record) return res.status(404).json({ error: '识别记录不存在或已过期清理' });
+  if (!record) return res.status(404).json({ error: '识别记录不存在或已被删除' });
 
   const matched = extractAndMatch({
     text: record.rawText || '',
