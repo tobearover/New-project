@@ -1,7 +1,9 @@
 const express = require('express');
 const multer = require('multer');
 const crypto = require('crypto');
-const { getDb, save, pushHistory } = require('../db');
+const fs = require('fs');
+const path = require('path');
+const { getDb, save, pushHistory, UPLOAD_DIR } = require('../db');
 const { recognizeImage } = require('../services/ocr');
 const { extractAndMatch } = require('../services/extractor');
 const {
@@ -20,6 +22,11 @@ const upload = multer({
 const DEDUP_WINDOW_MIN = parseInt(process.env.RECOGNITION_DEDUP_WINDOW_MIN || '30', 10);
 // 历史列表单次返回上限（仅分页限制，不做存储清理；历史永久保留直至用户手动删除）
 const LIST_LIMIT = 50;
+
+/** 记录图片的公开访问路径（如有） */
+function recordImageUrl(record) {
+  return record && record.imagePath ? '/' + String(record.imagePath).replace(/\\/g, '/') : null;
+}
 
 function sha256(input) {
   return crypto.createHash('sha256').update(input).digest('hex');
@@ -60,6 +67,7 @@ function toSummary(record) {
     matchedCount: record.matchedCount,
     phraseCount: record.phraseCount || 0,
     matchedWords: record.matchedWords || [],
+    imageUrl: recordImageUrl(record),
     // 列表展示只带原文摘要，完整原文保留在记录中供详情查看
     rawText: (record.rawText || '').slice(0, 500)
   };
@@ -151,6 +159,19 @@ router.post('/', upload.single('image'), async (req, res) => {
   });
   save();
 
+  // 图片识别：将上传原图落盘保存（缩略图/详情展示用），失败不影响识别主流程
+  if (req.file && req.file.buffer && req.file.buffer.length) {
+    try {
+      fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+      const filename = `${record.id}.jpg`;
+      fs.writeFileSync(path.join(UPLOAD_DIR, filename), req.file.buffer);
+      record.imagePath = `uploads/${filename}`;
+      save();
+    } catch (err) {
+      console.warn('[recognition] 保存识别原图失败：', err.message);
+    }
+  }
+
   res.json({
     syllabus: syllabus || null,
     engine: ocrResult.engine,
@@ -159,6 +180,7 @@ router.post('/', upload.single('image'), async (req, res) => {
     rawText: ocrResult.text,
     historyId: record.id,
     recognizedAt: record.createdAt,
+    imageUrl: recordImageUrl(record),
     duplicate: false,
     windowMinutes: DEDUP_WINDOW_MIN,
     ...matched
@@ -192,6 +214,7 @@ router.get('/history/:id', (req, res) => {
     rawText: record.rawText || '',
     historyId: record.id,
     recognizedAt: record.createdAt,
+    imageUrl: recordImageUrl(record),
     duplicate: false,
     windowMinutes: DEDUP_WINDOW_MIN,
     ...renderRecognitionDetail(record, db, req.user.id)

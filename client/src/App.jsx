@@ -11,6 +11,7 @@ import Wordbook from './pages/Wordbook';
 import Review from './pages/Review';
 import Quiz from './pages/Quiz';
 import History from './pages/History';
+import RecognitionDetail from './pages/RecognitionDetail';
 import Login from './pages/Login';
 
 export default function App() {
@@ -27,6 +28,7 @@ export default function App() {
         <Route path="/review" element={<ProtectedRoute><Review /></ProtectedRoute>} />
         <Route path="/quiz" element={<ProtectedRoute><Quiz /></ProtectedRoute>} />
         <Route path="/history" element={<ProtectedRoute><History /></ProtectedRoute>} />
+        <Route path="/recognition/:id" element={<ProtectedRoute><RecognitionDetail /></ProtectedRoute>} />
         <Route path="*" element={<div className="py-16 text-center text-slate-500">页面不存在</div>} />
       </Routes>
     </Layout>

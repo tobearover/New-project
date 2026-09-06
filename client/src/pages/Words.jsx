@@ -1,12 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ChevronDown } from 'lucide-react';
+import { AlertTriangle, BookOpen, ChevronRight, SearchX } from 'lucide-react';
 import { api } from '../api';
 import { useApp } from '../store';
 import LevelBadge from '../components/LevelBadge';
 import SpeakButton from '../components/SpeakButton';
-import StatusButtons from '../components/StatusButtons';
 import EmptyState from '../components/EmptyState';
+import { WordCardSkeleton } from '../components/Skeleton';
 
 const LEVELS = [
   ['', '全部'],
@@ -18,13 +18,38 @@ const LEVELS = [
 
 const PAGE_SIZE = 50;
 
-// 高频/重点词汇的视觉强调样式（手风琴条）
-const ACCENT = {
-  high_frequency: 'border-l-4 border-l-red-400 bg-gradient-to-r from-red-50/70 to-transparent',
-  key: 'border-l-4 border-l-blue-400 bg-gradient-to-r from-blue-50/70 to-transparent',
-  frequent: '',
-  cognition: ''
+// 卡片顶部色带：高频红 / 重点蓝，方便快速扫读
+const ACCENT_BAR = {
+  high_frequency: 'bg-red-400',
+  frequent: 'bg-orange-300',
+  key: 'bg-blue-400',
+  cognition: 'bg-slate-200'
 };
+
+const STATUS_LABEL = {
+  new: '生词本',
+  mastered: '已掌握',
+  favorite: '收藏'
+};
+
+function Meanings({ meanings }) {
+  const list = Array.isArray(meanings) ? meanings : [];
+  const shown = list.slice(0, 4);
+  const rest = list.length - shown.length;
+  return (
+    <>
+      {shown.map((m, i) => (
+        <span key={i} className="block text-sm leading-relaxed text-slate-700">
+          <span className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-brand-400 align-middle" />
+          {m}
+        </span>
+      ))}
+      {rest > 0 && (
+        <span className="text-sm text-slate-400">还有 {rest} 个释义，点击查看完整解析</span>
+      )}
+    </>
+  );
+}
 
 export default function Words() {
   const { syllabusId } = useApp();
@@ -34,7 +59,8 @@ export default function Words() {
   const [q, setQ] = useState('');
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [openId, setOpenId] = useState(null); // 手风琴：同一时间只展开一条
+  const [error, setError] = useState('');
+  const [tick, setTick] = useState(0);
 
   useEffect(() => {
     api.syllabi().then(setSyllabi).catch(() => {});
@@ -44,7 +70,7 @@ export default function Words() {
 
   useEffect(() => {
     setLoading(true);
-    setOpenId(null);
+    setError('');
     const timer = setTimeout(() => {
       api
         .words({ syllabus: syllabusId, level, q, limit: PAGE_SIZE, offset })
@@ -52,10 +78,13 @@ export default function Words() {
           setData(res);
           setLoading(false);
         })
-        .catch(() => setLoading(false));
+        .catch((err) => {
+          setError(err.message || '加载失败');
+          setLoading(false);
+        });
     }, 200);
     return () => clearTimeout(timer);
-  }, [syllabusId, level, q, offset]);
+  }, [syllabusId, level, q, offset, tick]);
 
   const levelCounts = useMemo(() => current?.stats?.levels || {}, [current]);
 
@@ -69,7 +98,8 @@ export default function Words() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-slate-900 md:text-2xl">
-            {current ? `${current.icon} ${current.name}` : '单词学习'}
+            <BookOpen className="mr-2 inline h-5 w-5 text-brand-600" />
+            {current ? current.name : '单词学习'}
           </h1>
           <p className="mt-0.5 text-sm text-slate-500">
             {current ? `${current.versions[0].year} · 共 ${data.total} 词` : '请先选择考纲'}
@@ -87,7 +117,7 @@ export default function Words() {
           value={q}
           onChange={(e) => resetPage(() => setQ(e.target.value))}
         />
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap gap-2">
           {LEVELS.map(([key, label]) => (
             <button
               key={key || 'all'}
@@ -104,134 +134,72 @@ export default function Words() {
           ))}
         </div>
       </div>
+      <p className="text-sm text-slate-500" aria-live="polite">
+        {loading ? '正在查找…' : `找到 ${data.total} 个单词`}
+      </p>
 
-      {loading && offset === 0 ? (
-        <div className="space-y-3">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="card h-[74px] animate-pulse bg-slate-100" />
+      {error ? (
+        <EmptyState
+          icon={AlertTriangle}
+          title="加载失败"
+          desc={error}
+          action={{ label: '重试', onClick: () => setTick((t) => t + 1) }}
+        />
+      ) : loading && offset === 0 ? (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <WordCardSkeleton key={i} />
           ))}
         </div>
       ) : data.items.length === 0 ? (
         <EmptyState
-          icon="📖"
-          title="没有找到单词"
+          icon={q ? SearchX : BookOpen}
+          title={q ? '未找到匹配的单词' : '没有找到单词'}
           desc={q ? `没有匹配「${q}」的单词，试试其他关键词。` : '该考纲词库暂无单词。'}
+          action={q ? { label: '清除搜索', onClick: () => resetPage(() => setQ('')) } : undefined}
         />
       ) : (
         <>
-          <div className="space-y-2">
-            {data.items.map((item) => {
-              const open = openId === item.id;
-              const emphasized = item.level === 'high_frequency' || item.level === 'key';
-              return (
-                <div
-                  key={item.id}
-                  className={`card overflow-hidden transition ${
-                    emphasized ? ACCENT[item.level] : ''
-                  } ${open ? 'shadow-md ring-1 ring-brand-300' : ''}`}
-                >
-                  {/* 手风琴头部：点击展开/收起；发音与标记按钮为兄弟节点，避免嵌套按钮 */}
-                  <div className="flex items-center gap-3 px-4 py-3">
-                    <button
-                      type="button"
-                      onClick={() => setOpenId(open ? null : item.id)}
-                      className="flex min-w-0 flex-1 items-center gap-3 text-left"
-                      aria-expanded={open}
-                    >
-                      <ChevronDown
-                        className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${
-                          open ? 'rotate-180' : ''
-                        }`}
-                      />
-                      <span className="min-w-0 flex-1">
-                        <span className="flex flex-wrap items-center gap-2">
-                          <span className="truncate text-base font-semibold text-slate-900">{item.word}</span>
-                          <LevelBadge level={item.level} />
-                          {emphasized && (
-                            <span className="chip bg-red-50 text-red-600 ring-1 ring-red-200">重点掌握</span>
-                          )}
-                          {item.status && (
-                            <span className="chip bg-brand-50 text-brand-600 ring-1 ring-brand-100">
-                              {item.status === 'new' ? '生词本' : item.status === 'mastered' ? '已掌握' : '收藏'}
-                            </span>
-                          )}
-                        </span>
-                        <span className="mt-0.5 block truncate text-sm text-slate-500">
-                          {item.phoneticUS || item.phoneticUK || ''} {item.pos}{' '}
-                          {item.meanings.join('；')}
-                        </span>
-                      </span>
-                    </button>
-                    <SpeakButton word={item.word} accent="US" size="sm" />
-                    <StatusButtons wordId={item.id} initialStatus={item.status} size="sm" />
-                  </div>
-
-                  {/* 手风琴内容：详细释义、例句、词组等 */}
-                  {open && (
-                    <div className="border-t border-slate-100 bg-slate-50/60 px-4 py-4">
-                      <div className="grid gap-4 md:grid-cols-2">
-                        <div>
-                          <div className="mb-1.5 text-xs font-semibold text-slate-400">释义</div>
-                          <div className="space-y-1">
-                            {item.meanings.map((m, i) => (
-                              <div key={i} className="flex items-baseline gap-2 text-sm text-slate-700">
-                                <span className="text-brand-500">▸</span>
-                                <span>{m}</span>
-                              </div>
-                            ))}
-                          </div>
-                          {item.synonyms.length > 0 && (
-                            <div className="mt-3">
-                              <div className="mb-1.5 text-xs font-semibold text-slate-400">同义词</div>
-                              <div className="flex flex-wrap gap-1.5">
-                                {item.synonyms.map((s) => (
-                                  <span key={s} className="chip bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100">
-                                    {s}
-                                  </span>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                        <div>
-                          {item.examples.length > 0 && (
-                            <div className="mb-3">
-                              <div className="mb-1.5 text-xs font-semibold text-slate-400">例句</div>
-                              {item.examples.map((ex, i) => (
-                                <div key={i} className="mb-2 rounded-lg bg-white p-2.5 ring-1 ring-slate-100">
-                                  <div className="text-sm text-slate-800">{ex.en}</div>
-                                  <div className="mt-0.5 text-xs text-slate-500">{ex.zh}</div>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                          {item.collocations.length > 0 && (
-                            <div>
-                              <div className="mb-1.5 text-xs font-semibold text-slate-400">常用搭配</div>
-                              <div className="flex flex-wrap gap-1.5">
-                                {item.collocations.map((c) => (
-                                  <span key={c} className="chip bg-blue-50 text-blue-700 ring-1 ring-blue-100">
-                                    {c}
-                                  </span>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                        </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {data.items.map((item) => (
+              <Link
+                key={item.id}
+                to={`/words/${encodeURIComponent(item.id)}`}
+                className="card card-interactive group flex flex-col overflow-hidden p-5"
+              >
+                <span className={`h-1 w-full ${ACCENT_BAR[item.level] || ACCENT_BAR.cognition}`} />
+                <div className="flex flex-1 flex-col pt-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="truncate text-xl font-bold text-slate-900">{item.word}</span>
+                        <LevelBadge level={item.level} />
+                        {item.status && STATUS_LABEL[item.status] && (
+                          <span className="chip bg-brand-50 text-brand-600 ring-1 ring-brand-100">
+                            {STATUS_LABEL[item.status]}
+                          </span>
+                        )}
                       </div>
-                      <div className="mt-3 border-t border-slate-100 pt-3">
-                        <Link
-                          to={`/words/${encodeURIComponent(item.id)}`}
-                          className="text-sm font-medium text-brand-600 hover:underline"
-                        >
-                          查看完整解析（考点 / 真题 / 记忆技巧）→
-                        </Link>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-2 text-sm text-slate-500">
+                        {item.phoneticUS && <span className="text-slate-400">美 {item.phoneticUS}</span>}
+                        {item.phoneticUK && <span className="text-slate-400">英 {item.phoneticUK}</span>}
+                        <span className="font-medium text-slate-600">{item.pos}</span>
                       </div>
                     </div>
-                  )}
+                    <SpeakButton word={item.word} accent="US" size="sm" />
+                  </div>
+
+                  <div className="mt-3 space-y-1 border-t border-slate-100 pt-3">
+                    <Meanings meanings={item.meanings} />
+                  </div>
+
+                  <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3 text-sm font-medium text-brand-600">
+                    <span>查看完整解析</span>
+                    <ChevronRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+                  </div>
                 </div>
-              );
-            })}
+              </Link>
+            ))}
           </div>
 
           <div className="flex items-center justify-center gap-3 pt-2">

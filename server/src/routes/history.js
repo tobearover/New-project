@@ -18,6 +18,7 @@ function summarize(record) {
       matchedCount: record.matchedCount || 0,
       phraseCount: record.phraseCount || 0,
       matchedWords: record.matchedWords || [],
+      imageUrl: record.imagePath ? '/' + String(record.imagePath).replace(/\\/g, '/') : null,
       rawText: (record.rawText || '').slice(0, 200)
     };
   }
