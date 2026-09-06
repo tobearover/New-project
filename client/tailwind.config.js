@@ -22,6 +22,13 @@ export default {
           '"Microsoft YaHei"',
           'sans-serif'
         ]
+      },
+      fontSize: {
+        xs: ['12px', { lineHeight: '16px' }],
+        sm: ['14px', { lineHeight: '20px' }],
+        base: ['16px', { lineHeight: '24px' }],
+        xl: ['20px', { lineHeight: '28px' }],
+        '3xl': ['30px', { lineHeight: '36px' }]
       }
     }
   },

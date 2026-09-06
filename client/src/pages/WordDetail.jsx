@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { Volume2, VolumeX } from 'lucide-react';
+import { AlertTriangle, BookmarkPlus, CheckCircle2, Lightbulb, Star, Volume2, VolumeX } from 'lucide-react';
 import { api } from '../api';
 import { useSpeech, englishPart } from '../utils/speech';
 import LevelBadge from '../components/LevelBadge';
@@ -83,7 +83,7 @@ export default function WordDetail() {
   }, [id]);
 
   if (loading) return <div className="py-16 text-center text-slate-500">单词详情加载中…</div>;
-  if (error) return <EmptyState icon="⚠️" title="无法加载" desc={error} />;
+  if (error) return <EmptyState icon={AlertTriangle} title="无法加载" desc={error} />;
   if (!data) return null;
 
   const w = data;
@@ -110,7 +110,24 @@ export default function WordDetail() {
               <LevelBadge level={w.level} />
               {w.status && (
                 <span className="chip bg-brand-50 text-brand-600 ring-1 ring-brand-100">
-                  {w.status === 'new' ? '📝 已在生词本' : w.status === 'mastered' ? '✅ 已掌握' : '⭐ 已收藏'}
+                  {w.status === 'new' && (
+                    <>
+                      <BookmarkPlus className="h-3.5 w-3.5" />
+                      已在生词本
+                    </>
+                  )}
+                  {w.status === 'mastered' && (
+                    <>
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      已掌握
+                    </>
+                  )}
+                  {w.status === 'favorite' && (
+                    <>
+                      <Star className="h-3.5 w-3.5" />
+                      已收藏
+                    </>
+                  )}
                 </span>
               )}
             </div>
@@ -159,7 +176,7 @@ export default function WordDetail() {
           <Section title="同义词 / 反义词">
             <div className="space-y-2 text-sm">
               {w.synonyms?.length > 0 && (
-                <div className="flex flex-wrap items-center gap-1.5">
+                <div className="flex flex-wrap items-center gap-2">
                   <span className="text-slate-400">同义：</span>
                   {w.synonyms.map((s) => (
                     <span key={s} className="chip bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100">{s}</span>
@@ -167,7 +184,7 @@ export default function WordDetail() {
                 </div>
               )}
               {w.antonyms?.length > 0 && (
-                <div className="flex flex-wrap items-center gap-1.5">
+                <div className="flex flex-wrap items-center gap-2">
                   <span className="text-slate-400">反义：</span>
                   {w.antonyms.map((s) => (
                     <span key={s} className="chip bg-red-50 text-red-600 ring-1 ring-red-100">{s}</span>
@@ -180,7 +197,7 @@ export default function WordDetail() {
 
         {w.collocations?.length > 0 && (
           <Section title="常见搭配">
-            <div className="flex flex-wrap gap-1.5">
+            <div className="flex flex-wrap gap-2">
               {w.collocations.map((c) => (
                 <span key={c} className="chip bg-blue-50 text-blue-700 ring-1 ring-blue-100">
                   {c}
@@ -194,7 +211,7 @@ export default function WordDetail() {
 
       {w.derivatives?.length > 0 && (
         <Section title="派生词">
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap gap-2">
             {w.derivatives.map((d) => (
               <span key={d} className="chip bg-violet-50 text-violet-700 ring-1 ring-violet-100">{d}</span>
             ))}
@@ -220,13 +237,16 @@ export default function WordDetail() {
 
       {w.memoryTip && (
         <Section title="记忆技巧">
-          <p className="text-sm leading-relaxed text-slate-700">💡 {w.memoryTip}</p>
+              <p className="flex items-start gap-2 text-sm leading-relaxed text-slate-700">
+                <Lightbulb className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                {w.memoryTip}
+              </p>
         </Section>
       )}
 
       {w.related?.length > 0 && (
         <Section title="相关单词推荐">
-          <div className="space-y-2.5">
+          <div className="space-y-3">
             {w.related.map((r) => (
               <WordListCard key={r.id} item={r} />
             ))}
@@ -239,7 +259,7 @@ export default function WordDetail() {
           <div className="space-y-2">
             {w.relatedPhrases.map((p) => (
               <div key={p.id} className="flex items-baseline justify-between gap-3 rounded-xl bg-slate-50 px-4 py-3">
-                <span className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
+                <span className="flex items-center gap-2 text-sm font-semibold text-slate-800">
                   {p.phrase}
                   <SpeakButton text={p.phrase} accent="US" size="sm" title="朗读该词组" />
                 </span>

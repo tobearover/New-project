@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { AlertTriangle, Briefcase, Globe, GraduationCap } from 'lucide-react';
 import { api } from '../api';
 import { useApp } from '../store';
 import EmptyState from '../components/EmptyState';
@@ -11,6 +12,13 @@ const LEVEL_ORDER = [
   ['key', '重点'],
   ['cognition', '认知']
 ];
+
+// 数据源 icon 字段为 emoji，页面统一用 lucide 图标展示（按考纲分类映射）
+const CATEGORY_ICON = {
+  国内考试: GraduationCap,
+  出国考试: Globe,
+  专业考试: Briefcase
+};
 
 export default function Exams() {
   const { syllabusId, selectSyllabus } = useApp();
@@ -47,7 +55,7 @@ export default function Exams() {
   if (error)
     return (
       <EmptyState
-        icon="⚠️"
+        icon={AlertTriangle}
         title="加载失败"
         desc={error}
         action={<span className="text-xs text-slate-400">请确认后端服务已启动（npm run dev:server）</span>}
@@ -66,7 +74,7 @@ export default function Exams() {
           <button
             key={c}
             onClick={() => setCategory(c)}
-            className={`chip ring-1 px-3.5 py-1.5 transition ${
+            className={`chip ring-1 px-4 py-1.5 transition ${
               category === c
                 ? 'bg-brand-600 text-white ring-brand-600'
                 : 'bg-white text-slate-600 ring-slate-300 hover:bg-slate-50'
@@ -80,14 +88,15 @@ export default function Exams() {
       <div className="grid gap-4 md:grid-cols-2">
         {filtered.map((s) => {
           const active = s.id === syllabusId;
+          const CategoryIcon = CATEGORY_ICON[s.category] || GraduationCap;
           return (
             <div
               key={s.id}
               className={`card flex flex-col gap-4 p-5 ${active ? 'ring-2 ring-brand-500' : ''}`}
             >
               <div className="flex items-start gap-3">
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-2xl">
-                  {s.icon}
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600">
+                  <CategoryIcon className="h-6 w-6" />
                 </span>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
@@ -106,7 +115,7 @@ export default function Exams() {
                 {s.audience}
               </p>
 
-              <div className="flex flex-wrap gap-1.5">
+              <div className="flex flex-wrap gap-2">
                 {LEVEL_ORDER.map(([key, label]) => (
                   <span key={key} className="chip bg-slate-100 text-slate-600">
                     {label} {s.stats?.levels?.[key] || 0}

@@ -1,10 +1,10 @@
+import { clearAuth, getToken } from './utils/storage';
+
 const BASE = '/api';
-const TOKEN_KEY = 'smartvocab.token';
-const USER_KEY = 'smartvocab.user';
 
 async function request(path, options = {}) {
   const opts = { ...options };
-  const token = localStorage.getItem(TOKEN_KEY);
+  const token = getToken();
   if (token) {
     opts.headers = { ...(opts.headers || {}), Authorization: `Bearer ${token}` };
   }
@@ -21,8 +21,7 @@ async function request(path, options = {}) {
   }
   // 登录失效：清除本地凭证（登录/注册接口的 401/400 除外）
   if (res.status === 401 && !path.startsWith('/auth/')) {
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(USER_KEY);
+    clearAuth();
   }
   if (!res.ok) {
     const err = new Error((data && data.error) || `请求失败（${res.status}）`);
@@ -35,6 +34,7 @@ async function request(path, options = {}) {
 }
 
 export const api = {
+  health: () => request('/health'),
   authRegister: (username, password) =>
     request('/auth/register', { method: 'POST', body: { username, password } }),
   authLogin: (username, password) =>

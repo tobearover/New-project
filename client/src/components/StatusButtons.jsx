@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
+import { BookmarkPlus, CheckCircle2, Star } from 'lucide-react';
 import { api } from '../api';
 import { useApp } from '../store';
 
 const STATUS_ITEMS = [
-  { key: 'new', label: '生词本', icon: '📝' },
-  { key: 'mastered', label: '已掌握', icon: '✅' },
-  { key: 'favorite', label: '收藏', icon: '⭐' }
+  { key: 'new', label: '生词本', Icon: BookmarkPlus },
+  { key: 'mastered', label: '已掌握', Icon: CheckCircle2 },
+  { key: 'favorite', label: '收藏', Icon: Star }
 ];
 
 export default function StatusButtons({
@@ -43,7 +44,7 @@ export default function StatusButtons({
 
   return (
     <div
-      className={`flex gap-1.5 ${
+      className={`flex gap-2 ${
         primaryOnlyOnMobile
           ? 'flex-wrap items-center'
           : size === 'sm'
@@ -51,28 +52,28 @@ export default function StatusButtons({
             : 'flex-wrap'
       }`}
     >
-      {STATUS_ITEMS.map((item) => {
-        const active = status === item.key;
+      {STATUS_ITEMS.map(({ key, label, Icon }) => {
+        const active = status === key;
         return (
           <button
-            key={item.key}
+            key={key}
             type="button"
             disabled={busy}
-            onClick={() => toggle(item.key)}
+            onClick={() => toggle(key)}
             className={`chip ring-1 transition ${
-              primaryOnlyOnMobile && item.key !== 'new' ? 'hidden sm:inline-flex' : ''
+              primaryOnlyOnMobile && key !== 'new' ? 'hidden sm:inline-flex' : ''
             } ${
               active
-                ? item.key === 'new'
+                ? key === 'new'
                   ? 'bg-brand-600 text-white ring-brand-600'
-                  : item.key === 'mastered'
+                  : key === 'mastered'
                     ? 'bg-emerald-600 text-white ring-emerald-600'
                     : 'bg-amber-500 text-white ring-amber-500'
                 : 'bg-white text-slate-600 ring-slate-300 hover:bg-slate-50'
             }`}
           >
-            {item.icon} {item.label}
-            {active ? ' ✓' : ''}
+            <Icon className="h-4 w-4" />
+            {label}
           </button>
         );
       })}

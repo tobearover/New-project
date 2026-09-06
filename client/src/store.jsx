@@ -1,9 +1,8 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { api } from './api';
+import { clearAuth, getStoredUser, getToken, setAuth } from './utils/storage';
 
 const KEY = 'smartvocab.syllabus';
-const TOKEN_KEY = 'smartvocab.token';
-const USER_KEY = 'smartvocab.user';
 const AppContext = createContext(null);
 const AuthContext = createContext(null);
 
@@ -41,17 +40,11 @@ export function useApp() {
 }
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem(USER_KEY) || 'null');
-    } catch {
-      return null;
-    }
-  });
+  const [user, setUser] = useState(getStoredUser);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    const token = localStorage.getItem(TOKEN_KEY);
+    const token = getToken();
     if (!token) {
       setReady(true);
       return;
@@ -60,32 +53,30 @@ export function AuthProvider({ children }) {
       .authMe()
       .then((res) => setUser(res.user))
       .catch(() => {
-        localStorage.removeItem(TOKEN_KEY);
-        localStorage.removeItem(USER_KEY);
+        clearAuth();
         setUser(null);
       })
       .finally(() => setReady(true));
   }, []);
 
-  const saveAuth = useCallback((token, user) => {
-    localStorage.setItem(TOKEN_KEY, token);
-    localStorage.setItem(USER_KEY, JSON.stringify(user));
+  const saveAuth = useCallback((token, user, remember = true) => {
+    setAuth(token, user, remember);
     setUser(user);
   }, []);
 
   const login = useCallback(
-    async (username, password) => {
+    async (username, password, remember = true) => {
       const res = await api.authLogin(username, password);
-      saveAuth(res.token, res.user);
+      saveAuth(res.token, res.user, remember);
       return res.user;
     },
     [saveAuth]
   );
 
   const register = useCallback(
-    async (username, password) => {
+    async (username, password, remember = true) => {
       const res = await api.authRegister(username, password);
-      saveAuth(res.token, res.user);
+      saveAuth(res.token, res.user, remember);
       return res.user;
     },
     [saveAuth]
@@ -97,8 +88,7 @@ export function AuthProvider({ children }) {
     } catch {
       /* 忽略网络异常，本地凭证照常清除 */
     }
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(USER_KEY);
+    clearAuth();
     setUser(null);
   }, []);
 

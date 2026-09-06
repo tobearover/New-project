@@ -1,14 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Volume2 } from 'lucide-react';
+import { BarChart3, BookOpen, CheckCircle2, Headphones, Keyboard, Trophy, Volume2 } from 'lucide-react';
 import { api } from '../api';
 import { useApp } from '../store';
 import EmptyState from '../components/EmptyState';
 
 const TYPES = [
-  ['meaning', '词义匹配', '看单词选释义', '🔤'],
-  ['spelling', '单词拼写', '看释义拼单词', '⌨️'],
-  ['listening', '听力辨词', '听发音选释义', '🎧']
+  ['meaning', '词义匹配', '看单词选释义', BookOpen],
+  ['spelling', '单词拼写', '看释义拼单词', Keyboard],
+  ['listening', '听力辨词', '听发音选释义', Headphones]
 ];
 
 export default function Quiz() {
@@ -114,7 +114,7 @@ export default function Quiz() {
           <div>
             <div className="mb-2 text-sm font-semibold text-slate-700">测验类型</div>
             <div className="grid gap-2 sm:grid-cols-2">
-              {TYPES.map(([key, label, desc, icon]) => (
+              {TYPES.map(([key, label, desc, Icon]) => (
                 <button
                   key={key}
                   onClick={() => setType(key)}
@@ -122,7 +122,9 @@ export default function Quiz() {
                     type === key ? 'bg-brand-50 ring-2 ring-brand-500' : 'bg-white ring-slate-200 hover:bg-slate-50'
                   }`}
                 >
-                  <div className="text-xl">{icon}</div>
+                  <div className="text-brand-600">
+                    <Icon className="h-6 w-6" />
+                  </div>
                   <div className="mt-1 text-sm font-semibold text-slate-800">{label}</div>
                   <div className="text-xs text-slate-500">{desc}</div>
                 </button>
@@ -161,7 +163,7 @@ export default function Quiz() {
     return (
       <div className="mx-auto max-w-xl">
         <EmptyState
-          icon={score / quiz.questions.length >= 0.8 ? '🏆' : '📊'}
+          icon={score / quiz.questions.length >= 0.8 ? Trophy : BarChart3}
           title={`答对 ${score} / ${quiz.questions.length}`}
           desc={score / quiz.questions.length >= 0.8 ? '表现很棒，继续保持！' : '答错的单词已自动加入生词本，记得复习。'}
           action={
@@ -176,7 +178,7 @@ export default function Quiz() {
             <div className="mb-2 text-sm font-semibold text-slate-800">错题回顾</div>
             <div className="space-y-2">
               {wrong.map((w) => (
-                <div key={w.id} className="flex items-center justify-between rounded-xl bg-red-50/60 px-4 py-2.5">
+                <div key={w.id} className="flex items-center justify-between rounded-xl bg-red-50/60 px-4 py-3">
                   <Link to={`/words/${encodeURIComponent(w.wordId)}`} className="font-semibold text-red-600 hover:underline">
                     {w.word}
                   </Link>
@@ -219,7 +221,9 @@ export default function Quiz() {
                 title="播放发音"
               >
                 {question.word}
-                {quiz.type === 'listening' && ' 🎧'}
+                {quiz.type === 'listening' && (
+                  <Headphones className="ml-2 inline h-7 w-7 text-brand-500" />
+                )}
               </button>
               <p className="mt-2 text-sm text-slate-400">{question.prompt}</p>
             </>
@@ -238,11 +242,11 @@ export default function Quiz() {
                 <Volume2 className="h-4 w-4" />
                 播放发音
               </button>
-              <div className="flex overflow-hidden rounded-lg text-xs ring-1 ring-slate-300">
+              <div className="flex overflow-hidden rounded-lg text-sm ring-1 ring-slate-300">
                 <button
                   type="button"
                   onClick={() => setAccent('US')}
-                  className={`px-2.5 py-1.5 transition ${
+                  className={`px-3 py-2 transition ${
                     accent === 'US' ? 'bg-brand-600 text-white' : 'bg-white text-slate-500 hover:bg-slate-50'
                   }`}
                 >
@@ -251,7 +255,7 @@ export default function Quiz() {
                 <button
                   type="button"
                   onClick={() => setAccent('UK')}
-                  className={`px-2.5 py-1.5 transition ${
+                  className={`px-3 py-2 transition ${
                     accent === 'UK' ? 'bg-brand-600 text-white' : 'bg-white text-slate-500 hover:bg-slate-50'
                   }`}
                 >
@@ -271,9 +275,14 @@ export default function Quiz() {
             />
             {checked && (
               <div className={`rounded-xl p-3 text-center text-sm ${input.trim().toLowerCase() === question.answer.toLowerCase() ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>
-                {input.trim().toLowerCase() === question.answer.toLowerCase()
-                  ? '✅ 正确！'
-                  : `正确答案：${question.answer}`}
+                {input.trim().toLowerCase() === question.answer.toLowerCase() ? (
+                  <span className="inline-flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4" />
+                    正确！
+                  </span>
+                ) : (
+                  `正确答案：${question.answer}`
+                )}
               </div>
             )}
             <button
@@ -285,7 +294,7 @@ export default function Quiz() {
             </button>
           </div>
         ) : (
-          <div className="mt-6 grid gap-2.5">
+          <div className="mt-6 grid gap-3">
             {question.options.map((opt) => {
               let cls = 'bg-white ring-slate-200 hover:bg-slate-50';
               if (checked) {
@@ -307,7 +316,7 @@ export default function Quiz() {
                   className={`rounded-xl px-4 py-3 text-left text-sm ring-1 transition ${cls}`}
                 >
                   {opt.text}
-                  {checked && opt.correct && ' ✓'}
+                  {checked && opt.correct && <CheckCircle2 className="ml-1 inline h-4 w-4 text-emerald-600" />}
                 </button>
               );
             })}

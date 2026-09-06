@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import {
   AlertTriangle,
   Camera,
@@ -83,7 +83,11 @@ function saveLastResult(result, viewingHistory) {
 
 export default function Scan() {
   const { syllabusId } = useApp();
-  const lastResult = loadLastResult();
+  const location = useLocation();
+  const openRecognitionId =
+    location.state && location.state.openRecognitionId ? location.state.openRecognitionId : null;
+  // 仅在非“首页跳转指定识别记录”时恢复上次会话结果
+  const lastResult = openRecognitionId ? null : loadLastResult();
   const [mode, setMode] = useState('camera'); // camera | upload | text
   const [preview, setPreview] = useState(null); // dataURL 预览
   const [preOptions, setPreOptions] = useState({ grayscale: true, contrast: true, denoise: false });
@@ -129,6 +133,41 @@ export default function Scan() {
     return () => stopCamera();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 首页“最近识别”点击跳转：按 id 打开对应识别详情（与历史列表点击同一视图）
+  useEffect(() => {
+    if (!openRecognitionId) return;
+    let cancelled = false;
+    setBusy(true);
+    setError('');
+    setOcrFailed(false);
+    setDuplicate(null);
+    api
+      .recognitionHistoryItem(openRecognitionId)
+      .then((data) => {
+        if (cancelled) return;
+        const viewing = { id: openRecognitionId, time: data.recognizedAt || new Date().toISOString() };
+        setResult(data);
+        setViewingHistory(viewing);
+        saveLastResult(data, viewing);
+        setTimeout(() => {
+          resultRef.current && resultRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 150);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err.message);
+          setOcrFailed(false);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setBusy(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openRecognitionId]);
 
   const refreshHistory = useCallback(() => {
     api
@@ -335,7 +374,7 @@ export default function Scan() {
                         : 'bg-white text-slate-500 ring-slate-300 hover:bg-slate-50'
                     }`}
                   >
-                    {t.label} {active ? '✓' : ''}
+                    {t.label} {active && <CheckCircle2 className="h-3.5 w-3.5" />}
                   </button>
                 );
               })}
@@ -379,7 +418,7 @@ export default function Scan() {
                   setViewingHistory(null);
                   if (key !== 'camera') stopCamera();
                 }}
-                className={`chip ring-1 px-3.5 py-1.5 transition ${
+                className={`chip ring-1 px-4 py-1.5 transition ${
                   mode === key ? 'bg-brand-600 text-white ring-brand-600' : 'bg-white text-slate-600 ring-slate-300'
                 }`}
               >
@@ -452,7 +491,7 @@ export default function Scan() {
           {preview && mode !== 'text' && (
             <div className="mt-4 space-y-3">
               <img src={preview} alt="待识别题目预览" className="max-h-72 w-full rounded-xl object-contain ring-1 ring-slate-200" />
-              <div className="flex flex-wrap gap-1.5">
+              <div className="flex flex-wrap gap-2">
                 {PREPROCESS_OPTIONS.map((opt) => (
                   <label key={opt.key} className="chip cursor-pointer bg-white text-slate-600 ring-1 ring-slate-300">
                     <input
@@ -495,7 +534,7 @@ export default function Scan() {
         <div ref={resultRef} className="scroll-mt-20 space-y-4">
           {!result && !busy && (
             <EmptyState
-              icon="🧾"
+              icon={FileText}
               title="识别结果将显示在这里"
               desc="识别完成后，考纲内已收录的单词会按高频 / 常考 / 重点 / 认知分组展示，未收录词汇自动过滤。"
             />
@@ -586,7 +625,7 @@ export default function Scan() {
                     <button
                       type="button"
                       onClick={() => toggleGroup(group.level)}
-                      className="flex w-full items-center justify-between border-b border-slate-100 bg-slate-50/60 px-4 py-2.5 text-left"
+                      className="flex w-full items-center justify-between border-b border-slate-100 bg-slate-50/60 px-4 py-3 text-left"
                       aria-expanded={!collapsed}
                     >
                       <span className="flex items-center gap-2 text-sm font-semibold text-slate-800">
@@ -642,7 +681,7 @@ export default function Scan() {
                     <button
                       type="button"
                       onClick={() => toggleGroup('phrases')}
-                      className="flex w-full items-center justify-between border-b border-slate-100 bg-slate-50/60 px-4 py-2.5 text-left"
+                      className="flex w-full items-center justify-between border-b border-slate-100 bg-slate-50/60 px-4 py-3 text-left"
                       aria-expanded={!collapsedGroups.has('phrases')}
                     >
                       <span className="text-sm font-semibold text-slate-800">词组短语</span>

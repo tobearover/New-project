@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { AlertTriangle, CalendarClock, CheckCircle2, Volume2 } from 'lucide-react';
 import { api } from '../api';
 import { useApp } from '../store';
 import EmptyState from '../components/EmptyState';
@@ -64,11 +65,11 @@ export default function Review() {
   };
 
   if (loading) return <div className="py-16 text-center text-slate-500">复习任务加载中…</div>;
-  if (error) return <EmptyState icon="⚠️" title="加载失败" desc={error} />;
+  if (error) return <EmptyState icon={AlertTriangle} title="加载失败" desc={error} />;
   if (summary)
     return (
       <EmptyState
-        icon="🎉"
+        icon={CheckCircle2}
         title="今日复习完成"
         desc={`本次共复习 ${items.length} 词：忘记 ${summary.counts.again} · 记得 ${summary.counts.good} · 轻松 ${summary.counts.easy}`}
         action={
@@ -83,7 +84,7 @@ export default function Review() {
   if (items.length === 0)
     return (
       <EmptyState
-        icon="😌"
+        icon={CalendarClock}
         title="暂无到期复习"
         desc="先添加一些生词，或稍后再来，系统会按遗忘曲线自动安排复习时间。"
         action={
@@ -115,7 +116,7 @@ export default function Review() {
           className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-brand-50 text-xl text-brand-600 ring-1 ring-brand-100 hover:bg-brand-100"
           title="播放发音"
         >
-          🔊
+          <Volume2 className="h-6 w-6" />
         </button>
         <div className="text-4xl font-bold text-slate-900">{item.word.word}</div>
         {item.word.phoneticUS && (
