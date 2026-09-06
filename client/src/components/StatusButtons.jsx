@@ -8,7 +8,13 @@ const STATUS_ITEMS = [
   { key: 'favorite', label: '收藏', icon: '⭐' }
 ];
 
-export default function StatusButtons({ wordId, initialStatus = null, size = 'md', onChange }) {
+export default function StatusButtons({
+  wordId,
+  initialStatus = null,
+  size = 'md',
+  onChange,
+  primaryOnlyOnMobile = false
+}) {
   const { refreshStats } = useApp();
   const [status, setStatus] = useState(initialStatus);
   const [busy, setBusy] = useState(false);
@@ -36,7 +42,15 @@ export default function StatusButtons({ wordId, initialStatus = null, size = 'md
   };
 
   return (
-    <div className={`flex gap-1.5 ${size === 'sm' ? 'flex-col' : 'flex-wrap'}`}>
+    <div
+      className={`flex gap-1.5 ${
+        primaryOnlyOnMobile
+          ? 'flex-wrap items-center'
+          : size === 'sm'
+            ? 'flex-col'
+            : 'flex-wrap'
+      }`}
+    >
       {STATUS_ITEMS.map((item) => {
         const active = status === item.key;
         return (
@@ -46,6 +60,8 @@ export default function StatusButtons({ wordId, initialStatus = null, size = 'md
             disabled={busy}
             onClick={() => toggle(item.key)}
             className={`chip ring-1 transition ${
+              primaryOnlyOnMobile && item.key !== 'new' ? 'hidden sm:inline-flex' : ''
+            } ${
               active
                 ? item.key === 'new'
                   ? 'bg-brand-600 text-white ring-brand-600'

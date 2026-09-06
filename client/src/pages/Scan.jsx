@@ -37,7 +37,11 @@ const TYPE_OPTIONS = [
 
 const TYPE_FILTER_KEY = 'smartvocab.scanTypeFilter';
 const PHRASES_KEY = 'smartvocab.scanShowPhrases';
+const COLLAPSED_KEY = 'smartvocab.scanCollapsedGroups';
+const LAST_RESULT_KEY = 'smartvocab.scanLastResult';
 const DEFAULT_FILTER = { high_frequency: true, frequent: true, key: true, cognition: true };
+// 默认展开：高频、常考；默认收起：重点、认知（词组默认展开）
+const DEFAULT_COLLAPSED = ['key', 'cognition'];
 
 function loadFilter() {
   try {
@@ -47,8 +51,39 @@ function loadFilter() {
   }
 }
 
+function loadCollapsed() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(COLLAPSED_KEY) || 'null');
+    if (Array.isArray(raw)) return new Set(raw);
+  } catch {
+    /* 忽略损坏数据 */
+  }
+  return new Set(DEFAULT_COLLAPSED);
+}
+
+function loadLastResult() {
+  try {
+    const raw = JSON.parse(sessionStorage.getItem(LAST_RESULT_KEY) || 'null');
+    return raw && raw.data ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveLastResult(result, viewingHistory) {
+  try {
+    sessionStorage.setItem(
+      LAST_RESULT_KEY,
+      JSON.stringify({ data: result, viewingHistory: viewingHistory || null, savedAt: Date.now() })
+    );
+  } catch {
+    /* sessionStorage 满时静默失败，不影响主流程 */
+  }
+}
+
 export default function Scan() {
   const { syllabusId } = useApp();
+  const lastResult = loadLastResult();
   const [mode, setMode] = useState('camera'); // camera | upload | text
   const [preview, setPreview] = useState(null); // dataURL 预览
   const [preOptions, setPreOptions] = useState({ grayscale: true, contrast: true, denoise: false });
@@ -56,9 +91,9 @@ export default function Scan() {
   const [cameraError, setCameraError] = useState('');
   const [mockText, setMockText] = useState('');
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState(null);
+  const [result, setResult] = useState(() => (lastResult ? lastResult.data : null));
   const [duplicate, setDuplicate] = useState(null);
-  const [viewingHistory, setViewingHistory] = useState(null); // { id, time }
+  const [viewingHistory, setViewingHistory] = useState(() => (lastResult ? lastResult.viewingHistory : null)); // { id, time }
   const [history, setHistory] = useState([]);
   const [historyWindow, setHistoryWindow] = useState(30);
   const [error, setError] = useState('');
@@ -67,7 +102,7 @@ export default function Scan() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [typeFilter, setTypeFilter] = useState(loadFilter);
   const [showPhrases, setShowPhrases] = useState(() => localStorage.getItem(PHRASES_KEY) !== '0');
-  const [collapsedGroups, setCollapsedGroups] = useState(() => new Set());
+  const [collapsedGroups, setCollapsedGroups] = useState(loadCollapsed);
 
   const videoRef = useRef(null);
   const fileRef = useRef(null);
@@ -83,6 +118,10 @@ export default function Scan() {
   useEffect(() => {
     localStorage.setItem(PHRASES_KEY, showPhrases ? '1' : '0');
   }, [showPhrases]);
+
+  useEffect(() => {
+    localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...collapsedGroups]));
+  }, [collapsedGroups]);
 
   useEffect(() => {
     api.syllabi().then(setSyllabi).catch(() => {});
@@ -113,7 +152,7 @@ export default function Scan() {
     }
   };
 
-  /** 查看历史识别详情：服务端用记录的完整原文重新提取，返回与实时识别一致的结果 */
+  /** 查看历史识别详情：优先返回入库时的结果快照，保证与当初一致 */
   const viewHistory = async (item) => {
     if (busy) return;
     setBusy(true);
@@ -123,7 +162,9 @@ export default function Scan() {
     try {
       const data = await api.recognitionHistoryItem(item.id);
       setResult(data);
-      setViewingHistory({ id: item.id, time: item.createdAt });
+      const viewing = { id: item.id, time: item.createdAt };
+      setViewingHistory(viewing);
+      saveLastResult(data, viewing);
       setTimeout(() => {
         resultRef.current && resultRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }, 80);
@@ -211,6 +252,8 @@ export default function Scan() {
         setDuplicate(data);
       } else {
         setResult(data);
+        setViewingHistory(null);
+        saveLastResult(data, null);
         refreshHistory();
       }
     } catch (err) {
@@ -227,11 +270,11 @@ export default function Scan() {
   const visibleGroups = result
     ? result.orderedGroups.filter((g) => typeFilter[g.level] !== false && g.words.length > 0)
     : [];
+  const phrasesVisible = !!result && showPhrases && (result.phrases || []).length > 0;
   const enabledTypeCount = TYPE_OPTIONS.filter((t) => typeFilter[t.key]).length;
 
-  const engineLabel = (engine, fallback) =>
-    (engine === 'aliyun' ? '阿里云OCR' : engine === 'demo' ? '演示文本' : 'OCR') +
-    (fallback ? '（已回退）' : '');
+  const engineLabel = (engine) =>
+    engine === 'aliyun' ? '阿里云OCR' : engine === 'demo' ? '文本输入' : 'OCR';
 
   const toggleGroup = (level) => {
     setCollapsedGroups((prev) => {
@@ -350,7 +393,7 @@ export default function Scan() {
             <div className="space-y-3">
               <textarea
                 className="input min-h-[160px] resize-y font-mono text-sm leading-relaxed"
-                placeholder="粘贴/输入题目中的英文句子，用于演示识别与匹配流程…"
+                placeholder="粘贴/输入题目中的英文句子，进行单词识别与考纲匹配…"
                 value={mockText}
                 onChange={(e) => setMockText(e.target.value)}
               />
@@ -519,9 +562,13 @@ export default function Scan() {
                 </p>
               </details>
 
-              {visibleGroups.length === 0 ? (
+              {visibleGroups.length === 0 && !phrasesVisible ? (
                 <div className="card flex flex-col items-center gap-2 px-6 py-8 text-center">
-                  <div className="text-sm text-slate-500">当前筛选条件下没有可显示的词汇</div>
+                  <div className="text-sm text-slate-500">
+                    {result.stats.matchedWords === 0
+                      ? '未识别到考纲内已收录的单词（未收录/超纲词汇已自动过滤）'
+                      : '当前筛选条件下没有可显示的词汇，本类暂无匹配词'}
+                  </div>
                   <button
                     type="button"
                     onClick={() => setTypeFilter({ ...DEFAULT_FILTER })}
@@ -531,13 +578,16 @@ export default function Scan() {
                   </button>
                 </div>
               ) : (
-                visibleGroups.map((group) => (
+                <>
+                {visibleGroups.map((group) => {
+                  const collapsed = collapsedGroups.has(group.level);
+                  return (
                   <div key={group.level} className="card overflow-hidden">
                     <button
                       type="button"
                       onClick={() => toggleGroup(group.level)}
                       className="flex w-full items-center justify-between border-b border-slate-100 bg-slate-50/60 px-4 py-2.5 text-left"
-                      aria-expanded={!collapsedGroups.has(group.level)}
+                      aria-expanded={!collapsed}
                     >
                       <span className="flex items-center gap-2 text-sm font-semibold text-slate-800">
                         <LevelBadge level={group.level} />
@@ -547,18 +597,26 @@ export default function Scan() {
                         {group.words.length} 个
                         <ChevronDown
                           className={`h-3.5 w-3.5 transition-transform ${
-                            collapsedGroups.has(group.level) ? '' : 'rotate-180'
+                            collapsed ? '' : 'rotate-180'
                           }`}
                         />
                       </span>
                     </button>
-                    {!collapsedGroups.has(group.level) && (
-                      <div className="divide-y divide-slate-100">
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateRows: collapsed ? '0fr' : '1fr',
+                        transition: 'grid-template-rows 220ms ease'
+                      }}
+                    >
+                      <div className="overflow-hidden">
+                        <div className="divide-y divide-slate-100">
                         {group.words.map((w) => (
-                          <div key={w.id} className="flex items-center gap-3 px-4 py-3">
+                          <div key={w.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
                             <div className="min-w-0 flex-1">
                               <Link
                                 to={`/words/${encodeURIComponent(w.id)}`}
+                                state={{ fromScan: true }}
                                 className="font-semibold text-brand-700 hover:underline"
                                 title="查看单词详情"
                               >
@@ -569,29 +627,55 @@ export default function Scan() {
                               </div>
                             </div>
                             <SpeakButton word={w.word} accent="US" size="sm" />
-                            <StatusButtons wordId={w.id} initialStatus={w.status} size="sm" />
+                            <StatusButtons wordId={w.id} initialStatus={w.status} size="sm" primaryOnlyOnMobile />
                           </div>
                         ))}
+                        </div>
                       </div>
-                    )}
+                    </div>
                   </div>
-                ))
-              )}
+                  );
+                })}
 
-              {showPhrases && result.phrases.length > 0 && (
-                <div className="card overflow-hidden">
-                  <div className="border-b border-slate-100 bg-slate-50/60 px-4 py-2.5 text-sm font-semibold text-slate-800">
-                    词组短语（{result.phrases.length}）
-                  </div>
-                  <div className="divide-y divide-slate-100">
-                    {result.phrases.map((p) => (
-                      <div key={p.id} className="flex items-center justify-between gap-3 px-4 py-3">
-                        <span className="font-semibold text-slate-800">{p.phrase}</span>
-                        <span className="text-xs text-slate-500">{p.meaning}</span>
+                {phrasesVisible && (
+                  <div key="phrases" className="card overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => toggleGroup('phrases')}
+                      className="flex w-full items-center justify-between border-b border-slate-100 bg-slate-50/60 px-4 py-2.5 text-left"
+                      aria-expanded={!collapsedGroups.has('phrases')}
+                    >
+                      <span className="text-sm font-semibold text-slate-800">词组短语</span>
+                      <span className="flex items-center gap-2 text-xs text-slate-400">
+                        {result.phrases.length} 个
+                        <ChevronDown
+                          className={`h-3.5 w-3.5 transition-transform ${
+                            collapsedGroups.has('phrases') ? '' : 'rotate-180'
+                          }`}
+                        />
+                      </span>
+                    </button>
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateRows: collapsedGroups.has('phrases') ? '0fr' : '1fr',
+                        transition: 'grid-template-rows 220ms ease'
+                      }}
+                    >
+                      <div className="overflow-hidden">
+                        <div className="divide-y divide-slate-100">
+                          {result.phrases.map((p) => (
+                            <div key={p.id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-4 py-3">
+                              <span className="font-semibold text-slate-800">{p.phrase}</span>
+                              <span className="text-xs text-slate-500">{p.meaning}</span>
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                    ))}
+                    </div>
                   </div>
-                </div>
+                )}
+                </>
               )}
             </>
           )}
@@ -645,7 +729,8 @@ export default function Scan() {
                       {(h.syllabus || 'all').toUpperCase()}
                     </span>
                     <span>匹配 {h.matchedCount} 词</span>
-                    {h.engine === 'demo' && <span>演示文本</span>}
+                    {h.engine === 'aliyun' && <span className="text-emerald-600">阿里云OCR</span>}
+                    {h.engine === 'demo' && <span>文本输入</span>}
                   </div>
                   <div className="mt-1 truncate text-sm text-slate-600">{h.rawText}</div>
                   {h.matchedWords.length > 0 && (

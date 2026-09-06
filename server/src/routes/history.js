@@ -1,6 +1,6 @@
 const express = require('express');
 const { getDb, save, removeHistory } = require('../db');
-const { extractAndMatch } = require('../services/extractor');
+const { renderRecognitionDetail } = require('../services/recognitionSnapshot');
 
 const router = express.Router();
 const MAX_PAGE_SIZE = 100;
@@ -62,7 +62,7 @@ router.get('/', (req, res) => {
   });
 });
 
-// 单条详情：识别记录返回完整结果（用完整原文重新提取），其余类型返回原始记录
+// 单条详情：识别记录优先返回入库快照（与当初一致），其余类型返回原始记录
 router.get('/:id', (req, res) => {
   const db = getDb();
   const record = (db.history || []).find(
@@ -71,20 +71,10 @@ router.get('/:id', (req, res) => {
   if (!record) return res.status(404).json({ error: '记录不存在或已被删除' });
 
   if (record.type === 'recognition') {
-    const matched = extractAndMatch({
-      text: record.rawText || '',
-      words: db.words,
-      phrases: db.phrases,
-      syllabusId: record.syllabus || null,
-      wordbook: db.wordbook
-    });
     return res.json({
       ...summarize(record),
       rawText: record.rawText || '',
-      stats: matched.stats,
-      groups: matched.groups,
-      orderedGroups: matched.order,
-      phrases: matched.phrases
+      ...renderRecognitionDetail(record, db, req.user.id)
     });
   }
   res.json(record);

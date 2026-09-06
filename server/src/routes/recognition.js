@@ -4,6 +4,11 @@ const crypto = require('crypto');
 const { getDb, save, pushHistory } = require('../db');
 const { recognizeImage } = require('../services/ocr');
 const { extractAndMatch } = require('../services/extractor');
+const {
+  RAW_TEXT_MAX,
+  buildRecognitionSnapshot,
+  renderRecognitionDetail
+} = require('../services/recognitionSnapshot');
 
 const router = express.Router();
 const upload = multer({
@@ -100,7 +105,8 @@ router.post('/', upload.single('image'), async (req, res) => {
       // 识别失败：返回可读错误与重试标记，禁止静默回退演示文本
       return res.status(502).json({
         error: err.message || '图片识别失败',
-        retryable: true,
+        errorKind: err.kind || 'unknown',
+        retryable: err.retryable !== false,
         ocr: { engine: 'aliyun' }
       });
     }
@@ -121,10 +127,13 @@ router.post('/', upload.single('image'), async (req, res) => {
     words: db.words,
     phrases: db.phrases,
     syllabusId: syllabus || null,
-    wordbook: db.wordbook
+    wordbook: (db.wordbook || {})[req.user.id] || {}
   });
 
   // 记录本次识别（同一内容强制重识别时会新增记录，最新记录用于后续去重）
+  const storedText = ocrResult.text.length > RAW_TEXT_MAX
+    ? ocrResult.text.slice(0, RAW_TEXT_MAX)
+    : ocrResult.text;
   const record = pushHistory({
     type: 'recognition',
     userId: req.user.id,
@@ -135,7 +144,10 @@ router.post('/', upload.single('image'), async (req, res) => {
     matchedCount: matched.stats.matchedWords,
     phraseCount: matched.stats.matchedPhrases,
     matchedWords: Object.values(matched.groups).flat().map((w) => w.word),
-    rawText: ocrResult.text // 保存完整原文，历史详情据此重新提取结果
+    rawText: storedText, // 原文截断存储，防止 db.json 无限膨胀
+    // 匹配结果快照：词 id + level + 释义固化入库，历史详情优先读快照，
+    // 避免日后词库/考纲变化导致老记录结果漂移
+    snapshot: buildRecognitionSnapshot(matched)
   });
   save();
 
@@ -165,24 +177,13 @@ router.get('/history', (req, res) => {
   res.json({ total: recognitions.length, windowMinutes: DEDUP_WINDOW_MIN, items });
 });
 
-/**
- * 历史识别详情：用记录中的完整原文 + 当前词库/生词本状态重新提取，
- * 返回与实时识别一致的结果结构（不保存完整分组结果，避免 db.json 膨胀）。
- */
+/** 历史识别详情：优先返回入库快照（结果与当初一致），老数据回退重新提取 */
 router.get('/history/:id', (req, res) => {
   const db = getDb();
   const record = (db.history || []).find(
     (r) => r.type === 'recognition' && r.id === req.params.id && r.userId === req.user.id
   );
   if (!record) return res.status(404).json({ error: '识别记录不存在或已被删除' });
-
-  const matched = extractAndMatch({
-    text: record.rawText || '',
-    words: db.words,
-    phrases: db.phrases,
-    syllabusId: record.syllabus || null,
-    wordbook: db.wordbook
-  });
 
   res.json({
     syllabus: record.syllabus || null,
@@ -193,7 +194,7 @@ router.get('/history/:id', (req, res) => {
     recognizedAt: record.createdAt,
     duplicate: false,
     windowMinutes: DEDUP_WINDOW_MIN,
-    ...matched
+    ...renderRecognitionDetail(record, db, req.user.id)
   });
 });
 

@@ -298,7 +298,7 @@ export default function History() {
                     </div>
                     <div className="mt-0.5 text-xs text-slate-400">
                       {fmtTime(item.createdAt)}
-                      {item.type === 'recognition' && item.engine === 'demo' && ' · 演示文本'}
+                      {item.type === 'recognition' && item.engine === 'demo' && ' · 文本输入'}
                       {item.type === 'recognition' && item.engine === 'aliyun' && ' · 阿里云OCR'}
                     </div>
                     {item.type === 'recognition' && item.matchedWords.length > 0 && (

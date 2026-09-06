@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { Volume2, VolumeX } from 'lucide-react';
 import { api } from '../api';
 import { useSpeech, englishPart } from '../utils/speech';
@@ -61,6 +61,9 @@ function SpeakableSentence({ sentence }) {
 
 export default function WordDetail() {
   const { id } = useParams();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const fromScan = !!(location.state && location.state.fromScan);
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -86,6 +89,15 @@ export default function WordDetail() {
   const w = data;
   return (
     <div className="space-y-4">
+      {fromScan && (
+        <button
+          type="button"
+          onClick={() => navigate(-1)}
+          className="inline-flex items-center gap-1 text-sm text-brand-600 hover:underline"
+        >
+          ← 返回识别结果
+        </button>
+      )}
       <Link to="/words" className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-brand-600">
         ← 返回单词列表
       </Link>

@@ -9,9 +9,14 @@ const DATA_DIR = path.join(__dirname, '..', 'data');
 const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
 const DB_PATH = path.join(DATA_DIR, 'db.json');
 
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 
 let db = null;
+let bloatWarned = false;
+
+// 历史记录膨胀预警阈值（只告警，绝不自动删除；删除只由用户手动触发）
+const HISTORY_BLOAT_COUNT = 5000;
+const HISTORY_BLOAT_BYTES = 30 * 1024 * 1024;
 
 /** 完整词库 = 现有 words.js（400 个精编词条）+ 开源词库合并新增（约 2.4 万） */
 function buildSeedWords() {
@@ -23,6 +28,7 @@ function defaultDb() {
   return {
     meta: {
       version: DB_VERSION,
+      schemaVersion: DB_VERSION,
       seededAt: new Date().toISOString(),
       wordsCount: 0
     },
@@ -41,7 +47,7 @@ function defaultDb() {
 function save() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
   const state = {
-    meta: { ...db.meta, wordsCount: db.words.length },
+    meta: { ...db.meta, version: DB_VERSION, schemaVersion: DB_VERSION, wordsCount: db.words.length },
     users: db.users,
     sessions: db.sessions,
     wordbook: db.wordbook,
@@ -50,6 +56,20 @@ function save() {
   const tmp = DB_PATH + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(state, null, 2), 'utf8');
   fs.renameSync(tmp, DB_PATH);
+
+  // 膨胀预警：文件过大只打日志提醒，不做任何自动清理
+  if (!bloatWarned) {
+    try {
+      const size = fs.statSync(DB_PATH).size;
+      if (size > HISTORY_BLOAT_BYTES) {
+        bloatWarned = true;
+        console.warn(
+          `[警告] db.json 已达 ${(size / 1024 / 1024).toFixed(1)}MB，` +
+            '历史记录永久保留，建议定期导出备份，必要时由用户手动清理'
+        );
+      }
+    } catch {}
+  }
 }
 
 /**
@@ -129,6 +149,7 @@ function load() {
   db = defaultDb();
   db.meta = {
     version: DB_VERSION,
+    schemaVersion: DB_VERSION,
     seededAt: db.meta.seededAt,
     wordsCount: db.words.length,
     migratedFrom: raw.meta && raw.meta.version
@@ -272,6 +293,13 @@ function pushHistory(entry) {
     createdAt: new Date().toISOString(),
     ...entry
   });
+  // 记录条数膨胀预警：仅提醒，不删除任何历史
+  if (dbRef.history.length > HISTORY_BLOAT_COUNT && dbRef.history.length % 500 === 0) {
+    console.warn(
+      `[警告] 历史记录已达 ${dbRef.history.length} 条（阈值 ${HISTORY_BLOAT_COUNT}），` +
+        '记录永久保留，建议备份并在用户确认后手动清理'
+    );
+  }
   return dbRef.history[dbRef.history.length - 1];
 }
 
