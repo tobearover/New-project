@@ -4,6 +4,7 @@ import { AlertTriangle, CalendarClock, CheckCircle2, Volume2 } from 'lucide-reac
 import { api } from '../api';
 import { useApp } from '../store';
 import EmptyState from '../components/EmptyState';
+import { speakText } from '../utils/speech';
 
 const BUTTONS = [
   { key: 'again', label: '忘记了', color: 'bg-red-500 hover:bg-red-600' },
@@ -35,12 +36,7 @@ export default function Review() {
   }, []);
 
   const speak = useCallback((word) => {
-    if (!('speechSynthesis' in window)) return;
-    window.speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(word);
-    u.lang = 'en-US';
-    u.rate = 0.85;
-    window.speechSynthesis.speak(u);
+    speakText(word, 'en-US', 0.85);
   }, []);
 
   const finish = useCallback(() => {

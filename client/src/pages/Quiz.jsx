@@ -4,6 +4,7 @@ import { BarChart3, BookOpen, CheckCircle2, Headphones, Keyboard, Trophy, Volume
 import { api } from '../api';
 import { useApp } from '../store';
 import EmptyState from '../components/EmptyState';
+import { speakText } from '../utils/speech';
 
 const TYPES = [
   ['meaning', '词义匹配', '看单词选释义', BookOpen],
@@ -54,12 +55,7 @@ export default function Quiz() {
   };
 
   const speak = (word) => {
-    if (!('speechSynthesis' in window)) return;
-    window.speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(word);
-    u.lang = accent === 'UK' ? 'en-GB' : 'en-US';
-    u.rate = 0.85;
-    window.speechSynthesis.speak(u);
+    speakText(word, accent === 'UK' ? 'en-GB' : 'en-US', 0.85);
   };
 
   useEffect(() => {
