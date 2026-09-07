@@ -8,13 +8,10 @@ import {
   Clock,
   FolderOpen,
   Library,
-  Star,
-  X
+  Star
 } from 'lucide-react';
 import { api } from '../api';
 import { useApp } from '../store';
-import LevelBadge from '../components/LevelBadge';
-import SpeakButton from '../components/SpeakButton';
 import StatusButtons from '../components/StatusButtons';
 import EmptyState from '../components/EmptyState';
 
@@ -59,14 +56,6 @@ export default function Wordbook() {
   useEffect(() => {
     load(tab);
   }, [tab, load]);
-
-  const remove = async (wordId) => {
-    if (!confirm('确定将该单词移出生词本吗？')) return;
-    await api.wordbookRemove(wordId);
-    refreshStats();
-    refreshWordbookStatus();
-    load(tab);
-  };
 
   return (
     <div className="space-y-4">
@@ -130,58 +119,52 @@ export default function Wordbook() {
       ) : items.length === 0 ? (
         <EmptyState
           icon={FolderOpen}
-          title="生词本还是空的"
-          desc="在单词详情或识别结果中点击「加入生词本」开始积累，也可以直接去学习单词。"
+          title={tab === 'favorite' ? '还没有收藏的单词' : tab === 'mastered' ? '还没有已掌握的单词' : '生词本还是空的'}
+          desc={
+            tab === 'favorite'
+              ? '浏览单词时点击「收藏」，重要单词会集中在这里。'
+              : tab === 'mastered'
+                ? '掌握一个单词后标记「已掌握」，这里会汇总你的成果。'
+                : '在单词详情或识别结果中点击「生词本」开始积累。'
+          }
           action={
             <Link to="/words" className="btn-primary mt-2">
-              去背单词
+              去学习单词
             </Link>
           }
         />
       ) : (
         <div className="space-y-3">
-          {items.map((item) => (
-            item.word ? (
-            <div key={item.wordId} className="card flex flex-wrap items-center gap-3 px-4 py-3">
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Link to={`/words/${encodeURIComponent(item.word.id)}`} className="font-semibold text-slate-900 hover:text-brand-600">
-                    {item.word.word}
-                  </Link>
-                  <LevelBadge level={item.word.level} />
-                  {item.due && (
-                    <Link to="/review" className="chip bg-red-50 text-red-600 ring-1 ring-red-200 hover:bg-red-100">
-                      <CalendarClock className="h-3.5 w-3.5" />
-                      今日到期
+          {items.map(
+            (item) =>
+              item.word && (
+                <div
+                  key={item.wordId}
+                  className="card flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="min-w-0 flex-1">
+                    <Link
+                      to={`/words/${encodeURIComponent(item.word.id)}`}
+                      className="text-base font-bold text-slate-900 hover:text-brand-600"
+                    >
+                      {item.word.word}
                     </Link>
-                  )}
-                  <span className="chip bg-slate-100 text-slate-500 ring-1 ring-slate-200">
-                    已复习 {item.reviewCount} 次
-                  </span>
+                    <div className="mt-0.5 line-clamp-2 text-sm leading-relaxed text-slate-600">
+                      {meaningText(item)}
+                    </div>
+                  </div>
+                  <StatusButtons
+                    wordId={item.word.id}
+                    initialStatus={item.status}
+                    onChange={() => {
+                      load(tab);
+                      refreshStats();
+                      refreshWordbookStatus();
+                    }}
+                  />
                 </div>
-                <div className="mt-0.5 truncate text-sm text-slate-500">
-                  {[item.word.phoneticUS || '', item.word.pos, meaningText(item)].filter(Boolean).join(' ')}
-                </div>
-                {item.nextReview && (
-                  <div className="mt-0.5 text-xs text-slate-400">下次复习：{item.nextReview}</div>
-                )}
-              </div>
-              <SpeakButton word={item.word.word} accent="US" size="sm" />
-              <StatusButtons
-                wordId={item.word.id}
-                initialStatus={item.status}
-                onChange={() => {
-                  load(tab);
-                  refreshStats();
-                  refreshWordbookStatus();
-                }}
-              />
-              <button onClick={() => remove(item.word.id)} className="btn-ghost text-red-500 hover:bg-red-50" title="移除" aria-label="移出生词本">
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            ) : null
-          ))}
+              )
+          )}
         </div>
       )}
     </div>
