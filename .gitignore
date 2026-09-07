@@ -14,3 +14,5 @@ server/src/seed/words_merged.js
 server/src/seed/words_merged_enrich.js
 .env
 .vite/
+vocab-source.zip
+**/vocab-source.zip
