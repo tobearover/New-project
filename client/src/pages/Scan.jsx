@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import { useApp } from '../store';
+import { getToken } from '../utils/storage';
 import { renderToCanvas, canvasToBlob } from '../utils/preprocess';
 import LevelBadge, { LEVEL_LABELS } from '../components/LevelBadge';
 import SpeakButton from '../components/SpeakButton';
@@ -82,7 +83,7 @@ function saveLastResult(result, viewingHistory) {
 }
 
 export default function Scan() {
-  const { syllabusId } = useApp();
+  const { syllabusId, wordbookStatus, wordbookStatusLoaded, refreshWordbookStatus } = useApp();
   const location = useLocation();
   const openRecognitionId =
     location.state && location.state.openRecognitionId ? location.state.openRecognitionId : null;
@@ -133,6 +134,29 @@ export default function Scan() {
     return () => stopCamera();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 从详情页返回（popstate / 页面可见性变化）时刷新生词本状态，避免按钮状态回退
+  useEffect(() => {
+    const refresh = () => {
+      if (getToken()) refreshWordbookStatus();
+    };
+    refresh();
+    window.addEventListener('popstate', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      window.removeEventListener('popstate', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+    };
+  }, [location.key, refreshWordbookStatus]);
+
+  // 识别结果里的词条状态：全局状态加载完成后以其为准，否则用结果快照值
+  const statusOf = (w) => {
+    if (!w) return null;
+    if (wordbookStatusLoaded) {
+      return wordbookStatus && w.id in wordbookStatus ? wordbookStatus[w.id] || null : null;
+    }
+    return w.status || null;
+  };
 
   // 首页“最近识别”点击跳转：按 id 打开对应识别详情（与历史列表点击同一视图）
   useEffect(() => {
@@ -666,7 +690,14 @@ export default function Scan() {
                               </div>
                             </div>
                             <SpeakButton word={w.word} accent="US" size="sm" />
-                            <StatusButtons wordId={w.id} initialStatus={w.status} size="sm" primaryOnlyOnMobile />
+                            <StatusButtons
+                              key={`${w.id}-${statusOf(w) || 'none'}`}
+                              wordId={w.id}
+                              initialStatus={statusOf(w)}
+                              size="sm"
+                              primaryOnlyOnMobile
+                              onChange={() => refreshWordbookStatus()}
+                            />
                           </div>
                         ))}
                         </div>

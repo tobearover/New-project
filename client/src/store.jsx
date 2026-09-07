@@ -9,6 +9,8 @@ const AuthContext = createContext(null);
 export function AppProvider({ children }) {
   const [syllabusId, setSyllabusId] = useState(() => localStorage.getItem(KEY) || 'cet4');
   const [stats, setStats] = useState(null);
+  const [wordbookStatus, setWordbookStatus] = useState({});
+  const [wordbookStatusLoaded, setWordbookStatusLoaded] = useState(false);
 
   const refreshStats = useCallback(async () => {
     try {
@@ -18,6 +20,27 @@ export function AppProvider({ children }) {
       setStats(null);
     }
   }, []);
+
+  // 生词本状态单一数据源：wordId -> status（null/移除后不存在）
+  const refreshWordbookStatus = useCallback(async () => {
+    try {
+      const res = await api.wordbook();
+      const map = {};
+      for (const it of res.items || []) {
+        if (it && it.wordId) map[it.wordId] = it.status || null;
+      }
+      setWordbookStatus(map);
+      setWordbookStatusLoaded(true);
+    } catch {
+      // 未登录或接口失败：不改变已加载状态，避免页面误判
+    }
+  }, []);
+
+  // 登录/登出后统计变化时联动刷新一次词条状态
+  useEffect(() => {
+    if (stats) refreshWordbookStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stats && stats.total, wordbookStatusLoaded === false]);
 
   useEffect(() => {
     refreshStats();
@@ -29,7 +52,17 @@ export function AppProvider({ children }) {
   }, []);
 
   return (
-    <AppContext.Provider value={{ syllabusId, selectSyllabus, stats, refreshStats }}>
+    <AppContext.Provider
+      value={{
+        syllabusId,
+        selectSyllabus,
+        stats,
+        refreshStats,
+        wordbookStatus,
+        wordbookStatusLoaded,
+        refreshWordbookStatus
+      }}
+    >
       {children}
     </AppContext.Provider>
   );

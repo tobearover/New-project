@@ -34,7 +34,10 @@ function joinWord(entry) {
 
 router.get('/stats', (req, res) => {
   const db = getDb();
-  const entries = Object.values(db.wordbook[req.user.id] || {});
+  // 与列表同口径：词库中已不存在的词条不参与统计，避免顶部数字与列表不一致
+  const entries = Object.values(db.wordbook[req.user.id] || {}).filter(
+    (e) => e && e.wordId && getWord(e.wordId)
+  );
   res.json({
     total: entries.length,
     new: entries.filter((e) => e.status === 'new').length,

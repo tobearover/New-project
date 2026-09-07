@@ -25,8 +25,15 @@ const TABS = [
   ['mastered', '已掌握']
 ];
 
+/** 防御性释义：meanings 缺失/空数组时给出占位，保证卡片不错位 */
+function meaningText(item) {
+  const list =
+    item && item.word && Array.isArray(item.word.meanings) ? item.word.meanings.filter(Boolean) : [];
+  return list.length > 0 ? list.join('；') : '暂无释义';
+}
+
 export default function Wordbook() {
-  const { stats, refreshStats } = useApp();
+  const { stats, refreshStats, refreshWordbookStatus } = useApp();
   const [tab, setTab] = useState('');
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -57,6 +64,7 @@ export default function Wordbook() {
     if (!confirm('确定将该单词移出生词本吗？')) return;
     await api.wordbookRemove(wordId);
     refreshStats();
+    refreshWordbookStatus();
     load(tab);
   };
 
@@ -133,6 +141,7 @@ export default function Wordbook() {
       ) : (
         <div className="space-y-3">
           {items.map((item) => (
+            item.word ? (
             <div key={item.wordId} className="card flex flex-wrap items-center gap-3 px-4 py-3">
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
@@ -151,18 +160,27 @@ export default function Wordbook() {
                   </span>
                 </div>
                 <div className="mt-0.5 truncate text-sm text-slate-500">
-                  {item.word.phoneticUS || ''} {item.word.pos} {item.word.meanings.join('；')}
+                  {[item.word.phoneticUS || '', item.word.pos, meaningText(item)].filter(Boolean).join(' ')}
                 </div>
                 {item.nextReview && (
                   <div className="mt-0.5 text-xs text-slate-400">下次复习：{item.nextReview}</div>
                 )}
               </div>
               <SpeakButton word={item.word.word} accent="US" size="sm" />
-              <StatusButtons wordId={item.word.id} initialStatus={item.status} onChange={() => load(tab)} />
+              <StatusButtons
+                wordId={item.word.id}
+                initialStatus={item.status}
+                onChange={() => {
+                  load(tab);
+                  refreshStats();
+                  refreshWordbookStatus();
+                }}
+              />
               <button onClick={() => remove(item.word.id)} className="btn-ghost text-red-500 hover:bg-red-50" title="移除" aria-label="移出生词本">
                 <X className="h-4 w-4" />
               </button>
             </div>
+            ) : null
           ))}
         </div>
       )}
