@@ -34,7 +34,13 @@ router.get('/', (req, res) => {
   if (level) list = list.filter((w) => w.level === level);
   if (q) {
     const kw = q.trim().toLowerCase();
-    list = list.filter((w) => w.word.toLowerCase().includes(kw));
+    list = list.filter((w) => {
+      if (!kw) return true;
+      if (w.word.toLowerCase().includes(kw)) return true;
+      // 中文搜索：命中任意一条中文释义（含词性文本里的中文字段）
+      const meaningText = (w.meanings || []).filter(Boolean).join(' ');
+      return meaningText.toLowerCase().includes(kw);
+    });
   }
 
   const total = list.length;

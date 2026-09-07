@@ -113,7 +113,7 @@ export default function Words() {
       <div className="flex flex-col gap-3 md:flex-row md:items-center">
         <input
           className="input md:max-w-xs"
-          placeholder="搜索单词（如 abandon）"
+          placeholder="搜索单词（中英文均可，如 abandon / 放弃）"
           value={q}
           onChange={(e) => resetPage(() => setQ(e.target.value))}
         />
